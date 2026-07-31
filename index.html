@@ -104,6 +104,13 @@
   <div id="breakerStatusBody">计算中…</div>
 </div>
 
+<div class="card" id="dualChartCard" style="display:none">
+  <div class="row-title">
+    股价(<span style="color:var(--blue)">■</span>左轴) 与 180自然日滚动超额收益(<span style="color:var(--amber)">■</span>右轴,熔断判断依据) — 近180个交易日
+  </div>
+  <div id="dualChartContainer"></div>
+</div>
+
 <div class="card" id="accountCard" style="display:none">
   <div class="row-title">账户设置(用于计算杠杆是否达到1.5倍上限)</div>
   <div class="inline-fields">
@@ -412,7 +419,7 @@ function applyAdvUIFromState() {
 
 function toggleAdvancedCards() {
   const on = document.getElementById("advancedModeToggle").checked;
-  ["breakerStatusCard","accountCard","tranchesCard","exportCard"].forEach(id => {
+  ["breakerStatusCard","dualChartCard","accountCard","tranchesCard","exportCard"].forEach(id => {
     document.getElementById(id).style.display = on ? "block" : "none";
   });
   const dateEl = document.getElementById("newTrancheDate");
@@ -512,6 +519,85 @@ function runCounterfactualSimulation(stockBars, futuresBars, model, mu, sd, warm
   return { equity, bench };
 }
 
+// ---------------- lightweight dependency-free dual-axis SVG line chart ----------------
+// leftSeries/rightSeries: arrays of {x: label, y: value}, assumed to share the same x-index positions.
+function renderDualAxisChart(containerId, leftSeries, rightSeries, opts = {}) {
+  const container = document.getElementById(containerId);
+  const W = container.clientWidth || 600, H = opts.height || 240;
+  const padL = 50, padR = 50, padT = 14, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const n = leftSeries.length;
+
+  function scales(series, refLines) {
+    const ys = series.map(p => p.y);
+    let yMin = Math.min(...ys, ...(refLines||[]));
+    let yMax = Math.max(...ys, ...(refLines||[]));
+    if (yMin === yMax) { yMin -= 1; yMax += 1; }
+    const pad = (yMax-yMin)*0.10;
+    return { yMin: yMin-pad, yMax: yMax+pad };
+  }
+  const xScale = i => padL + (i/(n-1))*plotW;
+  const left = scales(leftSeries);
+  const leftY = v => padT + plotH - ((v-left.yMin)/(left.yMax-left.yMin))*plotH;
+  const right = scales(rightSeries, opts.rightRefLines);
+  const rightY = v => padT + plotH - ((v-right.yMin)/(right.yMax-right.yMin))*plotH;
+
+  const leftPath = leftSeries.map((p,i) => `${i===0?"M":"L"}${xScale(i).toFixed(1)},${leftY(p.y).toFixed(1)}`).join(" ");
+  const rightPath = rightSeries.map((p,i) => `${i===0?"M":"L"}${xScale(i).toFixed(1)},${rightY(p.y).toFixed(1)}`).join(" ");
+
+  let refLinesSvg = "";
+  (opts.rightRefLines||[]).forEach((v,i) => {
+    const y = rightY(v);
+    const color = (opts.rightRefColors && opts.rightRefColors[i]) || "var(--muted)";
+    const label = (opts.rightRefLabels && opts.rightRefLabels[i]) || `${v}`;
+    refLinesSvg += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="${color}" stroke-width="1" stroke-dasharray="4,3"/>`;
+    refLinesSvg += `<text x="${W-padR+4}" y="${(y+3).toFixed(1)}" font-size="10" fill="${color}">${label}</text>`;
+  });
+
+  const idxs = [0, Math.floor((n-1)/2), n-1];
+  let xLabelsSvg = "";
+  idxs.forEach(i => {
+    xLabelsSvg += `<text x="${xScale(i).toFixed(1)}" y="${H-6}" text-anchor="middle" font-size="10" fill="var(--muted)">${leftSeries[i].x}</text>`;
+  });
+
+  const leftLabelsSvg = `
+    <text x="${padL-6}" y="${(padT+10)}" text-anchor="end" font-size="10" fill="var(--blue)">${left.yMax.toFixed(2)}</text>
+    <text x="${padL-6}" y="${(padT+plotH)}" text-anchor="end" font-size="10" fill="var(--blue)">${left.yMin.toFixed(2)}</text>
+  `;
+  const rightLabelsSvg = `
+    <text x="${W-padR+4}" y="${(padT+10)}" font-size="10" fill="var(--amber)">${right.yMax.toFixed(0)}%</text>
+    <text x="${W-padR+4}" y="${(padT+plotH)}" font-size="10" fill="var(--amber)">${right.yMin.toFixed(0)}%</text>
+  `;
+
+  container.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" style="display:block">
+      ${refLinesSvg}
+      <path d="${leftPath}" fill="none" stroke="var(--blue)" stroke-width="2"/>
+      <path d="${rightPath}" fill="none" stroke="var(--amber)" stroke-width="2"/>
+      ${leftLabelsSvg}
+      ${rightLabelsSvg}
+      ${xLabelsSvg}
+    </svg>
+  `;
+}
+
+function computeSignalSeries(stockBars, cf, windowDays) {
+  const n = stockBars.length;
+  const dates = stockBars.map(r => new Date(r.date));
+  const CAL_DAYS = 180;
+  const series = [];
+  for (let t=1; t<n; t++) {
+    let ref = null;
+    for (let tp=t; tp>=0; tp--) {
+      if ((dates[t]-dates[tp])/86400000 >= CAL_DAYS) { ref = tp; break; }
+    }
+    if (ref === null) continue;
+    const sig = (cf.equity[t]/cf.equity[ref]-1) - (cf.bench[t]/cf.bench[ref]-1);
+    series.push({ x: stockBars[t].date, y: sig*100 });
+  }
+  return windowDays ? series.slice(-windowDays) : series;
+}
+
 function computeBreakerStatus(stockBars, cf) {
   const n = stockBars.length;
   const dates = stockBars.map(r => new Date(r.date));
@@ -541,7 +627,25 @@ function recomputeBreakerStatus() {
   const cf = runCounterfactualSimulation(stockBars, futuresBars, model, mu, sd, warmup, X, B);
   advBreakerState = computeBreakerStatus(stockBars, cf);
   renderBreakerStatus();
+  renderDualChart(stockBars, cf);
   renderDecision();
+}
+
+function renderDualChart(stockBars, cf) {
+  const WINDOW = 180;
+  const signalSeries = computeSignalSeries(stockBars, cf, WINDOW);
+  if (signalSeries.length < 2) return;
+  const firstDate = signalSeries[0].x;
+  const priceSeries = stockBars
+    .filter(r => r.date >= firstDate)
+    .slice(-signalSeries.length)
+    .map(r => ({ x: r.date, y: r.close }));
+  renderDualAxisChart("dualChartContainer", priceSeries, signalSeries, {
+    height: 240,
+    rightRefLines: [20, 0],
+    rightRefColors: ["var(--red)", "var(--green)"],
+    rightRefLabels: ["停摆20%", "解除0%"],
+  });
 }
 
 function currentLeverageIfBuy(newTrancheValue) {
