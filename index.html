@@ -56,6 +56,21 @@
   .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border);
     border-top-color: var(--blue); border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 6px; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  .toggle-row { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+  .toggle-row input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--blue); cursor: pointer; }
+  .toggle-row .toggle-label { font-size: 14px; font-weight: 600; }
+  .toggle-row .toggle-sub { font-size: 12px; color: var(--muted); }
+  input[type=number], input[type=text] {
+    background: #10141a; border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 6px 8px; font-size: 13px; width: 100%;
+  }
+  .inline-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 12px; margin-bottom: 10px; }
+  .field label { display:block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .badge.on { background: rgba(255,92,92,0.15); color: var(--red); }
+  .badge.off { background: rgba(46,204,113,0.15); color: var(--green); }
+  .del-btn { background: transparent; color: var(--red); border: 1px solid var(--red); padding: 2px 8px; font-size: 12px; border-radius: 6px; }
+  .add-btn { background: transparent; color: var(--blue); border: 1px solid var(--blue); padding: 6px 12px; font-size: 13px; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -63,6 +78,45 @@
 <h1>隔夜信号 / 做T判断</h1>
 <div class="sub">模型: 逻辑回归 · 目标: 预测"今日盘中低点是否会跌破开盘价-1%" · 每次打开页面用截至昨日的全部历史数据重新训练(walk-forward)</div>
 <div class="sub">使用方式分两步: <b>①9:00左右看这里</b>决定要不要在9:15-9:25集合竞价挂卖单;<b>②9:25开盘价出来后再刷新一次</b>,看下面卡片给出的具体挂单价格。</div>
+
+<div class="card">
+  <label class="toggle-row">
+    <input type="checkbox" id="advancedModeToggle">
+    <span>
+      <span class="toggle-label">高级模式:0.9底仓 + 每日10%杠杆操作(软顶1.5倍 + 180日20%熔断)</span><br>
+      <span class="toggle-sub">开启后需要你手动维护"持仓中的杠杆仓位"记录,工具会据此判断能不能新开仓、以及提醒你哪些老仓位今天要继续挂止盈单</span>
+    </span>
+  </label>
+</div>
+
+<div class="card" id="breakerStatusCard" style="display:none">
+  <div class="row-title">策略状态(自动计算,基于"假设从未熔断"的180自然日滚动超额收益)</div>
+  <div id="breakerStatusBody">计算中…</div>
+</div>
+
+<div class="card" id="accountCard" style="display:none">
+  <div class="row-title">账户设置(用于计算杠杆是否达到1.5倍上限)</div>
+  <div class="inline-fields">
+    <div class="field"><label>账户总净值(元)</label><input type="number" id="totalEquityInput" placeholder="例如 100000"></div>
+    <div class="field"><label>底仓(不含杠杆仓位)市值(元)</label><input type="number" id="baselineValueInput" placeholder="例如 90000"></div>
+  </div>
+</div>
+
+<div class="card" id="tranchesCard" style="display:none">
+  <div class="row-title">持仓中的杠杆仓位(每笔挂"成本价+5%"止盈单,每天开盘都要继续挂,直到成交)</div>
+  <table id="tranchesTable"><thead><tr><th>买入日期</th><th>股数</th><th>成本价</th><th>止盈目标价</th><th></th></tr></thead><tbody></tbody></table>
+  <div class="inline-fields" style="margin-top:12px; grid-template-columns: 1fr 1fr 1fr auto;">
+    <div class="field"><label>买入日期</label><input type="text" id="newTrancheDate" placeholder="2026-07-31"></div>
+    <div class="field"><label>股数</label><input type="number" id="newTrancheShares" placeholder="500"></div>
+    <div class="field"><label>成本价</label><input type="number" step="0.01" id="newTrancheCost" placeholder="23.50"></div>
+    <div class="field" style="display:flex; align-items:flex-end;"><button class="add-btn" id="addTrancheBtn" style="margin-top:0; width:100%">+ 添加</button></div>
+  </div>
+</div>
+
+<div class="card" id="exportCard" style="display:none">
+  <div class="row-title">导出记录(截图这张卡片保存,换设备时照此手动录入)</div>
+  <pre id="exportView" style="white-space:pre-wrap; font-family:ui-monospace,monospace; font-size:13px; background:#10141a; border:1px solid var(--border); border-radius:8px; padding:12px; margin:0;"></pre>
+</div>
 
 <div class="card decision" id="decisionCard">
   <div class="label"><span class="spinner"></span>正在拉取行情并训练模型…</div>
@@ -121,7 +175,14 @@
   5. 双边挂单的上界X(默认3%)不是回测证明的最优值——历史数据显示这个数字在2%~8%之间来回摆动都没有稳定规律,纯粹是历史样本里少数几次大波动天数决定的,调整滑块只是给你一个参考区间,不代表精确调优。<br>
   6. 回测假设"日内最高/最低价触及挂单价就一定按挂单价成交",真实市场里快速拉升/砸盘时挂在极值点的限价单可能只部分成交甚至不成交。<br>
   7. 本页面只做信号参考,不构成投资建议,实盘请自行判断风险。<br>
-  8. 如果页面长时间卡在"正在拉取"或报错,通常是接口临时限流或网络问题,过几分钟重试即可。
+  8. 如果页面长时间卡在"正在拉取"或报错,通常是接口临时限流或网络问题,过几分钟重试即可。<br>
+  <br>
+  <b>高级模式(0.9底仓+杠杆)额外说明:</b><br>
+  9. 持仓记录、账户净值只存在这台设备这个浏览器的本地存储里,不会上传、不会跨设备同步——换手机/换浏览器/清缓存都会丢失,建议定期截图"导出记录"卡片留档。<br>
+  10. "策略状态"的180天熔断信号,是用固定训练好的模型回溯计算历史上每一天,不是逐日walk-forward重新训练(那样在浏览器里跑不动),仅作为熔断开关的内部参考依据,不代表这套历史推演本身经过了跟正文模型同等严格的样本外检验。<br>
+  11. 杠杆上限检查依赖你如实维护"账户总净值"“底仓市值”和"持仓中的杠杆仓位"三项数据——工具不知道你实际有没有按提示下单、有没有成交,这些都要你自己对照真实账户手动记录,算出来的杠杆判断才准。<br>
+  12. 每笔杠杆仓位的"成本价+5%"止盈单,理论上可能挂很多天甚至几个月才成交(2024-2026回测里最长挂过约60个交易日),挂单期间要每天重新挂,直到工具从表格里提示删除为止。<br>
+  13. 全部机制(1.5倍软顶、5%止盈、180日20%熔断)都只在2024-2026这一段历史上测过一次完整的停摆-重启循环,样本量很小,不代表未来同样有效,更不代表不会亏钱。
 </div>
 
 <script>
@@ -281,6 +342,214 @@ let currentProb = null;
 let currentFeatVals = null;
 let currentStockOpen = null;   // 600989's own actual open price, only known after 9:25 call auction
 let currentStockPrevClose = null;
+let advBreakerState = null;    // {stopped, trailingExcess, lastTransitionDate, lastTransitionType}
+let cachedForAdv = null;       // {stockBars, futuresBars, model, mu, sd, warmup} -- cached after each fetch so
+                                // the breaker signal can be recomputed when sliders change without refetching
+
+// ---------------- advanced-mode state (persisted in localStorage) ----------------
+const ADV_KEY = "advStrategyState_v1";
+function loadAdvState() {
+  try {
+    const raw = localStorage.getItem(ADV_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return { enabled: false, totalEquity: null, baselineValue: null, tranches: [] };
+}
+function saveAdvState(state) {
+  localStorage.setItem(ADV_KEY, JSON.stringify(state));
+}
+let advState = loadAdvState();
+
+function renderTranchesTable() {
+  const tbody = document.querySelector("#tranchesTable tbody");
+  tbody.innerHTML = "";
+  advState.tranches.forEach((tr, i) => {
+    const target = tr.cost * 1.05;
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td>${tr.date}</td>
+      <td>${tr.shares}</td>
+      <td>${tr.cost.toFixed(2)}</td>
+      <td style="color:var(--green); font-weight:600">${target.toFixed(2)}</td>
+      <td><button class="del-btn" data-idx="${i}">删除</button></td>
+    `;
+    tbody.appendChild(row);
+  });
+  tbody.querySelectorAll(".del-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      advState.tranches.splice(parseInt(btn.dataset.idx), 1);
+      saveAdvState(advState);
+      renderTranchesTable();
+      renderExportView();
+      renderDecision();
+    });
+  });
+}
+
+function applyAdvUIFromState() {
+  document.getElementById("advancedModeToggle").checked = !!advState.enabled;
+  document.getElementById("totalEquityInput").value = advState.totalEquity ?? "";
+  document.getElementById("baselineValueInput").value = advState.baselineValue ?? "";
+  renderTranchesTable();
+  renderExportView();
+  toggleAdvancedCards();
+}
+
+function toggleAdvancedCards() {
+  const on = document.getElementById("advancedModeToggle").checked;
+  ["breakerStatusCard","accountCard","tranchesCard","exportCard"].forEach(id => {
+    document.getElementById(id).style.display = on ? "block" : "none";
+  });
+}
+
+function renderExportView() {
+  const el = document.getElementById("exportView");
+  if (!el) return;
+  const lines = [];
+  lines.push(`更新时间: ${new Date().toLocaleString("zh-CN")}`);
+  lines.push(`账户总净值: ${advState.totalEquity ?? "(未填写)"}`);
+  lines.push(`底仓市值: ${advState.baselineValue ?? "(未填写)"}`);
+  lines.push(`持仓记录 (${advState.tranches.length}笔):`);
+  if (advState.tranches.length === 0) {
+    lines.push("  (无)");
+  } else {
+    advState.tranches.forEach((tr, i) => {
+      lines.push(`  ${i+1}. ${tr.date}  ${tr.shares}股  成本价${tr.cost}  止盈价${(tr.cost*1.05).toFixed(2)}`);
+    });
+  }
+  el.textContent = lines.join("\n");
+}
+
+// ---------------- counterfactual "always-on, never-stopped" simulation ----------------
+// Mirrors the Python reference model: 90% baseline + 10%-of-equity daily tranche operation,
+// bracket sell at open*(1+X) / buy at open*(1-B), tranches missing the same-day exit get a
+// persistent cost*1.05 target checked every subsequent day, 1.5x soft leverage cap.
+// NOTE: for tractability in-browser this reuses the SINGLE model trained on all history (same
+// one used for "today"), applied retroactively to every past day -- this is NOT a true walk-forward
+// re-training per historical day (that would be too slow client-side). It's only used to drive the
+// circuit-breaker bookkeeping below, not as a claim of historical predictive validity.
+function runCounterfactualSimulation(stockBars, futuresBars, model, mu, sd, warmup, X, B) {
+  const n = stockBars.length;
+  const COST_LEG = 0.001, THRESH = parseFloat(document.getElementById("thresholdSlider").value);
+  const TARGET_PROFIT = 0.05, LEV_CAP = 1.5, SLICE_FRAC = 0.10, BASE_FRAC = 0.90;
+
+  const probs = new Array(n).fill(null);
+  for (let t = warmup; t < n; t++) {
+    const raw = computeFeatureRow(t, stockBars, futuresBars, null);
+    const z = raw.map((v,j) => (v-mu[j])/sd[j]);
+    let s = model.b;
+    for (let j=0;j<z.length;j++) s += model.w[j]*z[j];
+    probs[t] = 1/(1+Math.exp(-s));
+  }
+
+  function dayFactorStandard(t, execute) {
+    const base = stockBars[t].close/stockBars[t-1].close;
+    if (!execute) return base;
+    const hit = stockBars[t].low <= stockBars[t].open*0.99;
+    if (hit) return base*(1/0.99)*(1-2*COST_LEG);
+    return (stockBars[t].open/stockBars[t-1].close)*(1-2*COST_LEG);
+  }
+
+  let baselineShares = BASE_FRAC/stockBars[0].close;
+  let cash = 1.0-BASE_FRAC;
+  let tranches = [];
+  const equity = [1.0], bench = [1.0];
+
+  for (let t=1; t<n; t++) {
+    bench.push(bench[bench.length-1]*(stockBars[t].close/stockBars[t-1].close));
+    const eqPrev = equity[equity.length-1];
+    const baselineValPrev = baselineShares*stockBars[t-1].close;
+    let baselineValT;
+
+    if (t >= warmup && probs[t] !== null && probs[t] >= THRESH) {
+      const r = dayFactorStandard(t, true);
+      const sliceVal = SLICE_FRAC*eqPrev;
+      const remaining = baselineValPrev - sliceVal;
+      baselineValT = remaining*(stockBars[t].close/stockBars[t-1].close) + sliceVal*r;
+      baselineShares = baselineValT/stockBars[t].close;
+    } else if (t >= warmup) {
+      const o=stockBars[t].open, h=stockBars[t].high, l=stockBars[t].low, c=stockBars[t].close;
+      tranches = tranches.filter(tr => {
+        if (h >= tr.cost*(1+TARGET_PROFIT)) { cash += tr.shares*tr.cost*(1+TARGET_PROFIT)*(1-COST_LEG); return false; }
+        return true;
+      });
+      const buyTrigger = o*(1-B);
+      const buyFires = l <= buyTrigger;
+      const openVal = tranches.reduce((s,tr)=>s+tr.shares*c, 0);
+      const curExposure = baselineShares*c + openVal;
+      if (buyFires) {
+        const newShares = (SLICE_FRAC*eqPrev)/buyTrigger;
+        if ((curExposure+newShares*buyTrigger)/eqPrev <= LEV_CAP) {
+          cash -= newShares*buyTrigger*(1+COST_LEG);
+          if (h >= o*(1+X)) cash += newShares*o*(1+X)*(1-COST_LEG);
+          else tranches.push({shares:newShares, cost:buyTrigger});
+        }
+      }
+      baselineValT = baselineShares*c;
+    } else {
+      baselineValT = baselineShares*stockBars[t].close;
+    }
+    const stockTotal = baselineValT + tranches.reduce((s,tr)=>s+tr.shares*stockBars[t].close, 0);
+    equity.push(stockTotal+cash);
+  }
+  return { equity, bench };
+}
+
+function computeBreakerStatus(stockBars, cf) {
+  const n = stockBars.length;
+  const dates = stockBars.map(r => new Date(r.date));
+  const STOP_THRESH = 0.20, RESUME_THRESH = 0.0, CAL_DAYS = 180;
+  let stopped = false;
+  let lastTransition = null;
+  let lastSignal = null;
+  for (let t=1; t<n; t++) {
+    let ref = null;
+    for (let tp=t; tp>=0; tp--) {
+      if ((dates[t]-dates[tp])/86400000 >= CAL_DAYS) { ref = tp; break; }
+    }
+    if (ref === null) continue;
+    const sig = (cf.equity[t]/cf.equity[ref]-1) - (cf.bench[t]/cf.bench[ref]-1);
+    lastSignal = sig;
+    if (!stopped && sig >= STOP_THRESH) { stopped = true; lastTransition = {date: stockBars[t].date, type:"STOP"}; }
+    else if (stopped && sig <= RESUME_THRESH) { stopped = false; lastTransition = {date: stockBars[t].date, type:"RESUME"}; }
+  }
+  return { stopped, trailingExcess: lastSignal, lastTransition };
+}
+
+function recomputeBreakerStatus() {
+  if (!cachedForAdv) return;
+  const X = parseFloat(document.getElementById("bracketUpperSlider").value);
+  const B = parseFloat(document.getElementById("bracketLowerSlider").value);
+  const { stockBars, futuresBars, model, mu, sd, warmup } = cachedForAdv;
+  const cf = runCounterfactualSimulation(stockBars, futuresBars, model, mu, sd, warmup, X, B);
+  advBreakerState = computeBreakerStatus(stockBars, cf);
+  renderBreakerStatus();
+  renderDecision();
+}
+
+function currentLeverageIfBuy(newTrancheValue) {
+  const totalEquity = parseFloat(document.getElementById("totalEquityInput").value);
+  const baselineValue = parseFloat(document.getElementById("baselineValueInput").value);
+  if (!totalEquity || !baselineValue) return null; // can't check without these inputs
+  const openTrancheValue = advState.tranches.reduce((s,tr)=>s+tr.shares*(currentStockPrevClose||tr.cost), 0);
+  return (baselineValue + openTrancheValue + newTrancheValue) / totalEquity;
+}
+
+function renderBreakerStatus() {
+  if (!advBreakerState) return;
+  const el = document.getElementById("breakerStatusBody");
+  const b = advBreakerState;
+  const badge = b.stopped
+    ? `<span class="badge on">熔断中 — 不建议新开杠杆仓位</span>`
+    : `<span class="badge off">正常 — 可以新开杠杆仓位(仍受1.5倍上限约束)</span>`;
+  el.innerHTML = `
+    ${badge}<br><br>
+    "假设从未熔断"的180自然日滚动超额收益: <b>${(b.trailingExcess*100).toFixed(2)}%</b>
+    (触发停摆线20%,解除线0%)<br>
+    最近一次状态切换: ${b.lastTransition ? `${b.lastTransition.date} (${b.lastTransition.type==='STOP'?'停摆':'解除'})` : "无"}<br>
+    <span style="color:var(--muted); font-size:12px">注:此信号用固定模型回溯全部历史算出,不是逐日walk-forward重训练,仅作为熔断状态的内部参考,不代表历史预测已验证。</span>
+  `;
+}
 
 async function runPipeline() {
   const statusEl = document.getElementById("statusMsg");
@@ -335,6 +604,12 @@ async function runPipeline() {
     // stock's own open (f46) is 0/unset before the 9:15-9:25 call auction concludes; only trust positive values
     currentStockOpen = (stockRtOpen && stockRtOpen > 0) ? stockRtOpen : null;
     currentStockPrevClose = stockRtPrevClose;
+    cachedForAdv = { stockBars: stockBars.slice(0, nAll), futuresBars, model, mu, sd, warmup: WARMUP };
+
+    if (document.getElementById("advancedModeToggle").checked) {
+      statusEl.textContent = "计算高级模式熔断状态…";
+      recomputeBreakerStatus();
+    }
 
     // render feature card
     const featGrid = document.getElementById("featGrid");
@@ -383,11 +658,29 @@ function currentModeExecute() {
   return currentProb !== null && currentProb >= thresh;
 }
 
+function isAdvancedMode() {
+  return document.getElementById("advancedModeToggle").checked;
+}
+function isBreakerStopped() {
+  return isAdvancedMode() && advBreakerState && advBreakerState.stopped;
+}
+
 function renderDecision() {
   if (currentProb === null) return;
   const thresh = parseFloat(document.getElementById("thresholdSlider").value);
   const decisionCard = document.getElementById("decisionCard");
   const execute = currentModeExecute();
+
+  if (isBreakerStopped()) {
+    decisionCard.innerHTML = `
+      <div class="label">① 9:00左右看这里 — 高级模式熔断中</div>
+      <div class="verdict hold">✗ 熔断中,今日不做任何新操作(不集合竞价卖出,不新开双边挂单)</div>
+      <div class="prob">模型概率仍为 <b>${(currentProb*100).toFixed(1)}%</b>,但因180日熔断状态为"停摆",本次跳过 — 只需按下方"持仓中的杠杆仓位"处理老仓位的止盈单</div>
+    `;
+    renderOpenPriceDecision();
+    return;
+  }
+
   decisionCard.innerHTML = `
     <div class="label">① 9:00左右看这里 — 今日触及开盘价-1%的预测概率</div>
     <div class="verdict ${execute?'execute':'hold'}">${execute ? "✓ 建议9:15-9:25集合竞价挂卖出" : "✗ 不满足条件,9:25看下面的双边挂单价"}</div>
@@ -400,6 +693,16 @@ function renderOpenPriceDecision() {
   const card = document.getElementById("openDecisionCard");
   if (currentProb === null) return;
   const execute = currentModeExecute();
+
+  if (isBreakerStopped()) {
+    card.innerHTML = `
+      <div class="label">② 高级模式熔断中</div>
+      <div class="verdict" style="color:var(--muted); font-size:18px">今日无需挂开盘价相关的新单</div>
+      <div class="prob">看下方"持仓中的杠杆仓位"卡片,那些老仓位的止盈单该挂还是要继续挂</div>
+    `;
+    return;
+  }
+
   if (currentStockOpen === null) {
     card.innerHTML = `
       <div class="label">② 9:25开盘价确定后再刷新本页看这里</div>
@@ -421,10 +724,26 @@ function renderOpenPriceDecision() {
     const B = parseFloat(document.getElementById("bracketLowerSlider").value);
     const sellTarget = o * (1+X);
     const buyTarget = o * (1-B);
+
+    let capWarning = "";
+    if (isAdvancedMode()) {
+      const newTrancheValue = parseFloat(document.getElementById("totalEquityInput").value) * 0.10 || 0;
+      const prospectiveLev = currentLeverageIfBuy(newTrancheValue);
+      if (prospectiveLev === null) {
+        capWarning = `<div style="color:var(--amber); margin-top:8px; font-size:13px">⚠️ 请先在"账户设置"里填写账户总净值和底仓市值,才能判断今天能不能新开仓(1.5倍杠杆上限)</div>`;
+      } else if (prospectiveLev > 1.5) {
+        capWarning = `<div style="color:var(--red); margin-top:8px; font-size:13px">⚠️ 若今日买入成交,预计杠杆将达到 ${prospectiveLev.toFixed(2)}倍,超过1.5倍软顶——今日只挂卖出价,不要挂买入价</div>`;
+      } else {
+        capWarning = `<div style="color:var(--green); margin-top:8px; font-size:13px">✓ 若买入成交,预计杠杆约 ${prospectiveLev.toFixed(2)}倍,未超过1.5倍软顶,可以正常挂双边单</div>`;
+      }
+    }
+
     card.innerHTML = `
       <div class="label">② 未满足①的条件,开盘价 <b>${o.toFixed(2)}</b> — 双边挂单</div>
       <div class="verdict hold">卖 ${sellTarget.toFixed(2)} ／ 买 ${buyTarget.toFixed(2)}</div>
       <div class="prob">卖出价 = 开盘+${(X*100).toFixed(1)}%,买入价 = 开盘-${(B*100).toFixed(1)}%,两边同时挂,数量相同,全天都不动就都不成交</div>
+      ${capWarning}
+      ${isAdvancedMode() ? `<div style="margin-top:8px; font-size:12px; color:var(--muted)">若买入成交且当天没涨到开盘+${(X*100).toFixed(1)}%卖出,记得把这笔仓位添加到下方"持仓中的杠杆仓位"表格(成本价填 ${buyTarget.toFixed(2)}),之后它的止盈目标价是 ${(buyTarget*1.05).toFixed(2)}(成本价+5%)</div>` : ""}
     `;
   }
 }
@@ -443,6 +762,47 @@ document.getElementById("bracketLowerSlider").addEventListener("input", (e) => {
 });
 document.getElementById("refreshBtn").addEventListener("click", runPipeline);
 
+document.getElementById("advancedModeToggle").addEventListener("change", (e) => {
+  advState.enabled = e.target.checked;
+  saveAdvState(advState);
+  toggleAdvancedCards();
+  if (e.target.checked && cachedForAdv) recomputeBreakerStatus();
+  else renderDecision();
+});
+document.getElementById("totalEquityInput").addEventListener("input", (e) => {
+  advState.totalEquity = e.target.value ? parseFloat(e.target.value) : null;
+  saveAdvState(advState);
+  renderExportView();
+  renderOpenPriceDecision();
+});
+document.getElementById("baselineValueInput").addEventListener("input", (e) => {
+  advState.baselineValue = e.target.value ? parseFloat(e.target.value) : null;
+  saveAdvState(advState);
+  renderExportView();
+  renderOpenPriceDecision();
+});
+document.getElementById("addTrancheBtn").addEventListener("click", () => {
+  const dateEl = document.getElementById("newTrancheDate");
+  const sharesEl = document.getElementById("newTrancheShares");
+  const costEl = document.getElementById("newTrancheCost");
+  const shares = parseFloat(sharesEl.value);
+  const cost = parseFloat(costEl.value);
+  if (!shares || !cost) {
+    costEl.style.borderColor = "var(--red)";
+    sharesEl.style.borderColor = "var(--red)";
+    setTimeout(() => { costEl.style.borderColor = ""; sharesEl.style.borderColor = ""; }, 1500);
+    return;
+  }
+  const dateStr = dateEl.value.trim() || new Date().toISOString().slice(0,10);
+  advState.tranches.push({ date: dateStr, shares, cost });
+  saveAdvState(advState);
+  renderTranchesTable();
+  renderExportView();
+  renderOpenPriceDecision();
+  dateEl.value = ""; sharesEl.value = ""; costEl.value = "";
+});
+
+applyAdvUIFromState();
 runPipeline();
 </script>
 </body>
