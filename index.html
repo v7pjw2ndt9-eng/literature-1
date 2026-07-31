@@ -60,9 +60,10 @@
   .toggle-row input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--blue); cursor: pointer; }
   .toggle-row .toggle-label { font-size: 14px; font-weight: 600; }
   .toggle-row .toggle-sub { font-size: 12px; color: var(--muted); }
-  input[type=number], input[type=text] {
+  input[type=number], input[type=text], input[type=date] {
     background: #10141a; border: 1px solid var(--border); color: var(--text);
     border-radius: 6px; padding: 6px 8px; font-size: 13px; width: 100%;
+    color-scheme: dark;
   }
   .inline-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px,1fr)); gap: 12px; margin-bottom: 10px; }
   .field label { display:block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
@@ -71,6 +72,15 @@
   .badge.off { background: rgba(46,204,113,0.15); color: var(--green); }
   .del-btn { background: transparent; color: var(--red); border: 1px solid var(--red); padding: 2px 8px; font-size: 12px; border-radius: 6px; }
   .add-btn { background: transparent; color: var(--blue); border: 1px solid var(--blue); padding: 6px 12px; font-size: 13px; margin-top: 8px; }
+  .todo-item {
+    display: flex; align-items: flex-start; gap: 10px; padding: 12px; margin-bottom: 8px;
+    background: #10141a; border: 1px solid var(--border); border-radius: 8px;
+  }
+  .todo-item input[type=checkbox] { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--green); cursor: pointer; flex-shrink: 0; }
+  .todo-item.done { opacity: 0.45; }
+  .todo-item.done .todo-title { text-decoration: line-through; }
+  .todo-title { font-size: 15px; font-weight: 600; }
+  .todo-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
 </style>
 </head>
 <body>
@@ -106,7 +116,7 @@
   <div class="row-title">持仓中的杠杆仓位(每笔挂"成本价+5%"止盈单,每天开盘都要继续挂,直到成交)</div>
   <table id="tranchesTable"><thead><tr><th>买入日期</th><th>股数</th><th>成本价</th><th>止盈目标价</th><th></th></tr></thead><tbody></tbody></table>
   <div class="inline-fields" style="margin-top:12px; grid-template-columns: 1fr 1fr 1fr auto;">
-    <div class="field"><label>买入日期</label><input type="text" id="newTrancheDate" placeholder="2026-07-31"></div>
+    <div class="field"><label>买入日期</label><input type="date" id="newTrancheDate"></div>
     <div class="field"><label>股数</label><input type="number" id="newTrancheShares" placeholder="500"></div>
     <div class="field"><label>成本价</label><input type="number" step="0.01" id="newTrancheCost" placeholder="23.50"></div>
     <div class="field" style="display:flex; align-items:flex-end;"><button class="add-btn" id="addTrancheBtn" style="margin-top:0; width:100%">+ 添加</button></div>
@@ -123,6 +133,11 @@
 </div>
 
 <div class="card decision" id="openDecisionCard" style="display:none">
+</div>
+
+<div class="card" id="todoCard" style="display:none">
+  <div class="row-title">今日操作清单 — 挂完单/确认成交后勾选,后面就不用再管了</div>
+  <div id="todoList"></div>
 </div>
 
 <div class="card" id="thresholdCard" style="display:none">
@@ -400,6 +415,8 @@ function toggleAdvancedCards() {
   ["breakerStatusCard","accountCard","tranchesCard","exportCard"].forEach(id => {
     document.getElementById(id).style.display = on ? "block" : "none";
   });
+  const dateEl = document.getElementById("newTrancheDate");
+  if (on && !dateEl.value) dateEl.value = new Date().toISOString().slice(0,10);
 }
 
 function renderExportView() {
@@ -414,7 +431,7 @@ function renderExportView() {
     lines.push("  (无)");
   } else {
     advState.tranches.forEach((tr, i) => {
-      lines.push(`  ${i+1}. ${tr.date}  ${tr.shares}股  成本价${tr.cost}  止盈价${(tr.cost*1.05).toFixed(2)}`);
+      lines.push(`  ${i+1}. ${tr.date}  ${tr.shares}股  成本价${tr.cost.toFixed(2)}  止盈价${(tr.cost*1.05).toFixed(2)}`);
     });
   }
   el.textContent = lines.join("\n");
@@ -533,6 +550,113 @@ function currentLeverageIfBuy(newTrancheValue) {
   if (!totalEquity || !baselineValue) return null; // can't check without these inputs
   const openTrancheValue = advState.tranches.reduce((s,tr)=>s+tr.shares*(currentStockPrevClose||tr.cost), 0);
   return (baselineValue + openTrancheValue + newTrancheValue) / totalEquity;
+}
+
+function todayDateStr() { return new Date().toISOString().slice(0,10); }
+
+function renderTodoList() {
+  const card = document.getElementById("todoCard");
+  const list = document.getElementById("todoList");
+  if (currentProb === null) { card.style.display = "none"; return; }
+  card.style.display = "block";
+  list.innerHTML = "";
+  const today = todayDateStr();
+
+  function addItem({title, sub, checkable, checked, onToggle}) {
+    const div = document.createElement("div");
+    div.className = "todo-item" + (checked ? " done" : "");
+    const cbHtml = checkable
+      ? `<input type="checkbox" ${checked?"checked":""}>`
+      : `<span style="width:20px;flex-shrink:0"></span>`;
+    div.innerHTML = `${cbHtml}<div><div class="todo-title">${title}</div>${sub?`<div class="todo-sub">${sub}</div>`:""}</div>`;
+    if (checkable) {
+      div.querySelector("input").addEventListener("change", (e) => onToggle(e.target.checked));
+    }
+    list.appendChild(div);
+  }
+
+  const stopped = isBreakerStopped();
+  const execute = currentModeExecute();
+
+  if (stopped) {
+    addItem({ title: "策略熔断中,今日不新开任何操作", sub: "不集合竞价卖出,不新开双边挂单", checkable: false });
+  } else if (execute) {
+    if (currentStockOpen === null) {
+      addItem({ title: "9:15-9:25 集合竞价挂卖出", sub: "开盘价出来后刷新页面看买回价", checkable: true, checked: false, onToggle: () => {} });
+    } else {
+      const buyTarget = currentStockOpen * 0.99;
+      addItem({
+        title: `买入挂单价 ${buyTarget.toFixed(2)}`,
+        sub: `开盘价${currentStockOpen.toFixed(2)} -1%,若全天没跌到则收盘价买回`,
+        checkable: true, checked: false, onToggle: () => {}
+      });
+    }
+  } else {
+    if (currentStockOpen === null) {
+      addItem({ title: "双边挂单准备中", sub: "9:25开盘价出来后刷新页面看具体价格", checkable: false });
+    } else {
+      const X = parseFloat(document.getElementById("bracketUpperSlider").value);
+      const B = parseFloat(document.getElementById("bracketLowerSlider").value);
+      const sellTarget = currentStockOpen * (1+X);
+      const buyTarget = currentStockOpen * (1-B);
+      addItem({
+        title: `双边挂单: 卖 ${sellTarget.toFixed(2)} / 买 ${buyTarget.toFixed(2)}`,
+        sub: "卖出成交(以当天原价位了结)无需记录;买入成交如果没等到卖出,请勾选下面这条",
+        checkable: false
+      });
+
+      if (isAdvancedMode()) {
+        const alreadyConfirmed = advState.buyConfirmedDate === today && advState.buyConfirmedPrice != null;
+        addItem({
+          title: alreadyConfirmed
+            ? `已记录: ${today} 买入成交 @ ${advState.buyConfirmedPrice.toFixed(2)}`
+            : `买入已成交 @ ${buyTarget.toFixed(2)}(勾选后自动记为新仓位)`,
+          sub: alreadyConfirmed ? "取消勾选可撤销这笔记录" : "股数按账户净值的10%自动估算,添加后可去下方表格手动修改",
+          checkable: true,
+          checked: alreadyConfirmed,
+          onToggle: (isChecked) => {
+            if (isChecked) {
+              const totalEquity = parseFloat(document.getElementById("totalEquityInput").value);
+              const shares = totalEquity ? Math.round((totalEquity*0.10/buyTarget)/100)*100 : 0;
+              advState.tranches.push({ date: today, shares: shares || 0, cost: buyTarget });
+              advState.buyConfirmedDate = today;
+              advState.buyConfirmedPrice = buyTarget;
+            } else {
+              const idx = advState.tranches.findIndex(tr => tr.date===today && Math.abs(tr.cost-buyTarget)<0.001);
+              if (idx >= 0) advState.tranches.splice(idx,1);
+              advState.buyConfirmedDate = null;
+              advState.buyConfirmedPrice = null;
+            }
+            saveAdvState(advState);
+            renderTranchesTable();
+            renderExportView();
+            renderTodoList();
+          }
+        });
+      }
+    }
+  }
+
+  if (isAdvancedMode() && advState.tranches.length > 0) {
+    advState.tranches.forEach((tr, i) => {
+      const target = tr.cost * 1.05;
+      addItem({
+        title: `老仓位止盈: 卖 ${target.toFixed(2)}`,
+        sub: `${tr.date}买入 ${tr.shares}股 成本${tr.cost.toFixed(2)} — 今天继续挂这个卖价,成交后勾选`,
+        checkable: true,
+        checked: false,
+        onToggle: (isChecked) => {
+          if (isChecked) {
+            advState.tranches.splice(i,1);
+            saveAdvState(advState);
+            renderTranchesTable();
+            renderExportView();
+            renderTodoList();
+          }
+        }
+      });
+    });
+  }
 }
 
 function renderBreakerStatus() {
@@ -698,8 +822,9 @@ function renderOpenPriceDecision() {
     card.innerHTML = `
       <div class="label">② 高级模式熔断中</div>
       <div class="verdict" style="color:var(--muted); font-size:18px">今日无需挂开盘价相关的新单</div>
-      <div class="prob">看下方"持仓中的杠杆仓位"卡片,那些老仓位的止盈单该挂还是要继续挂</div>
+      <div class="prob">看下方"今日操作清单",那些老仓位的止盈单该挂还是要继续挂</div>
     `;
+    renderTodoList();
     return;
   }
 
@@ -709,6 +834,7 @@ function renderOpenPriceDecision() {
       <div class="verdict" style="color:var(--muted); font-size:18px">开盘价尚未产生</div>
       <div class="prob">当前处于 ${execute ? "「建议卖出」" : "「双边挂单」"} 模式,9:25集合竞价结束、开盘价出来后点"重新拉取"按钮刷新即可看到具体挂单价格</div>
     `;
+    renderTodoList();
     return;
   }
   const o = currentStockOpen;
@@ -743,9 +869,10 @@ function renderOpenPriceDecision() {
       <div class="verdict hold">卖 ${sellTarget.toFixed(2)} ／ 买 ${buyTarget.toFixed(2)}</div>
       <div class="prob">卖出价 = 开盘+${(X*100).toFixed(1)}%,买入价 = 开盘-${(B*100).toFixed(1)}%,两边同时挂,数量相同,全天都不动就都不成交</div>
       ${capWarning}
-      ${isAdvancedMode() ? `<div style="margin-top:8px; font-size:12px; color:var(--muted)">若买入成交且当天没涨到开盘+${(X*100).toFixed(1)}%卖出,记得把这笔仓位添加到下方"持仓中的杠杆仓位"表格(成本价填 ${buyTarget.toFixed(2)}),之后它的止盈目标价是 ${(buyTarget*1.05).toFixed(2)}(成本价+5%)</div>` : ""}
+      ${isAdvancedMode() ? `<div style="margin-top:8px; font-size:12px; color:var(--muted)">若买入成交,去下方"今日操作清单"勾选对应条目,会自动记为新仓位,不用手动填表格</div>` : ""}
     `;
   }
+  renderTodoList();
 }
 
 document.getElementById("thresholdSlider").addEventListener("input", (e) => {
@@ -799,7 +926,7 @@ document.getElementById("addTrancheBtn").addEventListener("click", () => {
   renderTranchesTable();
   renderExportView();
   renderOpenPriceDecision();
-  dateEl.value = ""; sharesEl.value = ""; costEl.value = "";
+  dateEl.value = new Date().toISOString().slice(0,10); sharesEl.value = ""; costEl.value = "";
 });
 
 applyAdvUIFromState();
