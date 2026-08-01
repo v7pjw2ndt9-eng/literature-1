@@ -71,7 +71,10 @@
   .badge.on { background: rgba(255,92,92,0.15); color: var(--red); }
   .badge.off { background: rgba(46,204,113,0.15); color: var(--green); }
   .del-btn { background: transparent; color: var(--red); border: 1px solid var(--red); padding: 2px 8px; font-size: 12px; border-radius: 6px; }
+  .edit-btn { background: transparent; color: var(--blue); border: 1px solid var(--blue); padding: 2px 8px; font-size: 12px; border-radius: 6px; margin-right: 4px; }
   .add-btn { background: transparent; color: var(--blue); border: 1px solid var(--blue); padding: 6px 12px; font-size: 13px; margin-top: 8px; }
+  .range-btn { background: transparent; color: var(--muted); border: 1px solid var(--border); padding: 5px 12px; font-size: 12px; border-radius: 999px; font-weight: 500; }
+  .range-btn.active { background: var(--blue); color: white; border-color: var(--blue); }
   .todo-item {
     display: flex; align-items: flex-start; gap: 10px; padding: 12px; margin-bottom: 8px;
     background: #10141a; border: 1px solid var(--border); border-radius: 8px;
@@ -93,46 +96,44 @@
   <label class="toggle-row">
     <input type="checkbox" id="advancedModeToggle">
     <span>
-      <span class="toggle-label">高级模式:0.9底仓 + 每日10%杠杆操作(软顶1.5倍 + 180日20%熔断)</span><br>
+      <span class="toggle-label">高级模式:0.9底仓 + 每日10%杠杆操作(软顶1.5倍 + 180日20%熔断仅停双边挂单 + 每日最多3笔止盈)</span><br>
       <span class="toggle-sub">开启后需要你手动维护"持仓中的杠杆仓位"记录,工具会据此判断能不能新开仓、以及提醒你哪些老仓位今天要继续挂止盈单</span>
     </span>
   </label>
+  <div id="accountInputsBlock" style="display:none">
+    <div class="row-title" style="margin-top:18px">账户设置(用于计算杠杆是否达到1.5倍上限)</div>
+    <div class="todo-sub" style="margin-bottom:10px">这两个数字填"现在/最新"的实际值,不是某个历史时间点——每次持仓或净值变化后来更新一下即可,工具会自动按最新数字重新计算</div>
+    <div class="inline-fields">
+      <div class="field"><label>账户总净值(元,现在的总资产)</label><input type="number" id="totalEquityInput" placeholder="例如 100000"></div>
+      <div class="field"><label>底仓(不含杠杆仓位)市值(元,现在的市值)</label><input type="number" id="baselineValueInput" placeholder="例如 90000"></div>
+    </div>
+    <div class="row-title" style="margin-top:18px">持仓中的杠杆仓位(每笔挂"成本价+5%"止盈单,每天开盘都要继续挂,直到成交;每天最多允许3笔同时止盈)</div>
+    <table id="tranchesTable"><thead><tr><th>买入日期</th><th>股数</th><th>成本价</th><th>止盈目标价</th><th></th></tr></thead><tbody></tbody></table>
+    <div class="inline-fields" style="margin-top:12px; grid-template-columns: 1fr 1fr 1fr auto;">
+      <div class="field"><label>买入日期</label><input type="date" id="newTrancheDate"></div>
+      <div class="field"><label>股数</label><input type="number" id="newTrancheShares" placeholder="500"></div>
+      <div class="field"><label>成本价</label><input type="number" step="0.01" id="newTrancheCost" placeholder="23.50"></div>
+      <div class="field" style="display:flex; align-items:flex-end;"><button class="add-btn" id="addTrancheBtn" style="margin-top:0; width:100%">+ 添加</button></div>
+    </div>
+
+    <div class="row-title" style="margin-top:18px">云同步(可选,通过 GitHub Gist)</div>
+    <div class="todo-sub" style="margin-bottom:10px">去 GitHub 头像→Settings→Developer settings→Personal access tokens→Fine-grained tokens 新建一个只勾"Gist"读写权限的 Token,填在下面就能在多台设备间同步这个页面的净值/持仓/卖出记录。Token 只存在这台设备本地,不会出现在CSV导出或"导出记录"文字卡片里;但 Gist 本身是"secret"(不公开列出,不是强加密),知道链接的人仍能看到内容,别用来存比这更敏感的东西。</div>
+    <div class="inline-fields" style="grid-template-columns: 2fr 1fr;">
+      <div class="field"><label>GitHub Token</label><input type="password" id="syncTokenInput" placeholder="github_pat_..."></div>
+      <div class="field"><label>Gist ID(留空=首次推送自动创建)</label><input type="text" id="syncGistIdInput" placeholder="自动"></div>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:10px">
+      <button class="add-btn" id="syncPushBtn">推送到云端</button>
+      <button class="add-btn" id="syncPullBtn">从云端拉取(会覆盖本机记录)</button>
+      <label class="toggle-row" style="gap:6px"><input type="checkbox" id="syncAutoPushToggle" style="width:16px;height:16px"><span style="font-size:12px">自动推送(修改后3秒自动同步)</span></label>
+    </div>
+    <div class="status" id="syncStatusMsg" style="margin-top:8px"></div>
+  </div>
 </div>
 
 <div class="card" id="breakerStatusCard" style="display:none">
   <div class="row-title">策略状态(自动计算,基于"假设从未熔断"的180自然日滚动超额收益)</div>
   <div id="breakerStatusBody">计算中…</div>
-</div>
-
-<div class="card" id="dualChartCard" style="display:none">
-  <div class="row-title">
-    股价(<span style="color:var(--blue)">■</span>左轴) 与 180自然日滚动超额收益(<span style="color:var(--amber)">■</span>右轴,熔断判断依据) — 近180个交易日
-  </div>
-  <div id="dualChartContainer"></div>
-</div>
-
-<div class="card" id="accountCard" style="display:none">
-  <div class="row-title">账户设置(用于计算杠杆是否达到1.5倍上限)</div>
-  <div class="inline-fields">
-    <div class="field"><label>账户总净值(元)</label><input type="number" id="totalEquityInput" placeholder="例如 100000"></div>
-    <div class="field"><label>底仓(不含杠杆仓位)市值(元)</label><input type="number" id="baselineValueInput" placeholder="例如 90000"></div>
-  </div>
-</div>
-
-<div class="card" id="tranchesCard" style="display:none">
-  <div class="row-title">持仓中的杠杆仓位(每笔挂"成本价+5%"止盈单,每天开盘都要继续挂,直到成交)</div>
-  <table id="tranchesTable"><thead><tr><th>买入日期</th><th>股数</th><th>成本价</th><th>止盈目标价</th><th></th></tr></thead><tbody></tbody></table>
-  <div class="inline-fields" style="margin-top:12px; grid-template-columns: 1fr 1fr 1fr auto;">
-    <div class="field"><label>买入日期</label><input type="date" id="newTrancheDate"></div>
-    <div class="field"><label>股数</label><input type="number" id="newTrancheShares" placeholder="500"></div>
-    <div class="field"><label>成本价</label><input type="number" step="0.01" id="newTrancheCost" placeholder="23.50"></div>
-    <div class="field" style="display:flex; align-items:flex-end;"><button class="add-btn" id="addTrancheBtn" style="margin-top:0; width:100%">+ 添加</button></div>
-  </div>
-</div>
-
-<div class="card" id="exportCard" style="display:none">
-  <div class="row-title">导出记录(截图这张卡片保存,换设备时照此手动录入)</div>
-  <pre id="exportView" style="white-space:pre-wrap; font-family:ui-monospace,monospace; font-size:13px; background:#10141a; border:1px solid var(--border); border-radius:8px; padding:12px; margin:0;"></pre>
 </div>
 
 <div class="card decision" id="decisionCard">
@@ -167,6 +168,45 @@
     <input type="range" id="bracketLowerSlider" min="0.003" max="0.02" step="0.001" value="0.009" style="flex:1">
     <span id="bracket-lower-val" style="font-weight:600; min-width:42px; text-align:right">0.9%</span>
   </div>
+</div>
+
+<div class="card" id="dashboardCard" style="display:none">
+  <div class="row-title">股价 / 180日超额收益 / 杠杆率 / 实际收益对比 — 共享同一条时间轴,可交互(鼠标悬停看数值,按钮切换显示区间)</div>
+  <div id="dashboardRangeRow" style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; align-items:center">
+    <button class="range-btn" data-range="30">近30天</button>
+    <button class="range-btn" data-range="90">近90天</button>
+    <button class="range-btn active" data-range="180">近180天</button>
+    <button class="range-btn" data-range="250">近1年</button>
+    <button class="range-btn" data-range="all">全部</button>
+  </div>
+  <div class="inline-fields" style="margin-bottom:10px; grid-template-columns:repeat(auto-fit,minmax(90px,auto)); gap:12px;">
+    <label class="toggle-row" style="gap:6px"><input type="checkbox" id="benchSz50" style="width:16px;height:16px"><span style="font-size:13px">上证50</span></label>
+    <label class="toggle-row" style="gap:6px"><input type="checkbox" id="benchHs300" style="width:16px;height:16px"><span style="font-size:13px">沪深300</span></label>
+    <label class="toggle-row" style="gap:6px"><input type="checkbox" id="benchHldb" style="width:16px;height:16px"><span style="font-size:13px">红利低波</span></label>
+    <label class="toggle-row" style="gap:6px"><input type="checkbox" id="benchCsi1000" style="width:16px;height:16px"><span style="font-size:13px">中证1000</span></label>
+    <label class="toggle-row" style="gap:6px"><input type="checkbox" id="benchCsi2000" style="width:16px;height:16px"><span style="font-size:13px">中证2000</span></label>
+    <label class="toggle-row" style="gap:6px"><input type="checkbox" id="benchCyb50" style="width:16px;height:16px"><span style="font-size:13px">创业板50</span></label>
+    <label class="toggle-row" style="gap:6px"><input type="checkbox" id="benchKc50" style="width:16px;height:16px"><span style="font-size:13px">科创50</span></label>
+  </div>
+  <div id="dashboardContainer"></div>
+  <div id="dashboardEmpty" class="todo-sub" style="display:none">暂无足够的交易记录来重建"实际收益对比"这条线(需要至少一笔已记录的持仓),其余曲线不受影响</div>
+</div>
+
+<div class="card" id="sellLogCard" style="display:none">
+  <div class="row-title">卖出记录(历史成交流水;实际成交价与挂单建议价不同时可点"编辑"手动订正)</div>
+  <table id="sellLogTable"><thead><tr><th>日期</th><th>类型</th><th>股数</th><th>买价</th><th>卖价</th><th>盈亏%</th><th></th></tr></thead><tbody></tbody></table>
+  <div id="sellLogEmpty" class="todo-sub" style="margin-top:6px">暂无记录</div>
+</div>
+
+<div class="card" id="exportCard" style="display:none">
+  <div class="row-title">导出记录(截图这张卡片保存,换设备时照此手动录入)</div>
+  <pre id="exportView" style="white-space:pre-wrap; font-family:ui-monospace,monospace; font-size:13px; background:#10141a; border:1px solid var(--border); border-radius:8px; padding:12px; margin:0;"></pre>
+  <div style="display:flex; gap:10px; margin-top:12px; flex-wrap:wrap">
+    <button class="add-btn" id="exportCsvBtn">导出CSV文件</button>
+    <button class="add-btn" id="importCsvBtn">导入CSV文件</button>
+    <input type="file" id="importCsvInput" accept=".csv" style="display:none">
+  </div>
+  <div class="todo-sub" style="margin-top:8px">CSV包含持仓中的仓位和卖出记录,换设备时先导出、再到新设备导入,比截图手动录入更可靠</div>
 </div>
 
 <div class="card" id="featCard" style="display:none">
@@ -204,7 +244,16 @@
   10. "策略状态"的180天熔断信号,是用固定训练好的模型回溯计算历史上每一天,不是逐日walk-forward重新训练(那样在浏览器里跑不动),仅作为熔断开关的内部参考依据,不代表这套历史推演本身经过了跟正文模型同等严格的样本外检验。<br>
   11. 杠杆上限检查依赖你如实维护"账户总净值"“底仓市值”和"持仓中的杠杆仓位"三项数据——工具不知道你实际有没有按提示下单、有没有成交,这些都要你自己对照真实账户手动记录,算出来的杠杆判断才准。<br>
   12. 每笔杠杆仓位的"成本价+5%"止盈单,理论上可能挂很多天甚至几个月才成交(2024-2026回测里最长挂过约60个交易日),挂单期间要每天重新挂,直到工具从表格里提示删除为止。<br>
-  13. 全部机制(1.5倍软顶、5%止盈、180日20%熔断)都只在2024-2026这一段历史上测过一次完整的停摆-重启循环,样本量很小,不代表未来同样有效,更不代表不会亏钱。
+  13. 全部机制(1.5倍软顶、5%止盈、180日20%熔断)都只在2024-2026这一段历史上测过一次完整的停摆-重启循环,样本量很小,不代表未来同样有效,更不代表不会亏钱。<br>
+  14. "实际组合"收益曲线只能从你第一笔记录的日期开始重建,更早的历史算不出来;"标准T"和"双边卖出"这两类当天自成一体的记录,按账户净值的10%估算规模计入曲线,跟你实际下单金额可能有出入。<br>
+  15. CSV导入是"追加"到现有记录,不会自动去重或覆盖——如果同一批记录导入了两次,会变成两份重复的,需要自己去表格里手动删掉多余的。<br>
+  16. 红利低波、中证2000这两个指数数据来自东方财富,上证50、沪深300、中证1000、创业板50、科创50数据来自新浪,两边接口都可能偶尔限流或延迟,某条基准曲线加载不出来时过几分钟重试即可,不影响其余曲线。<br>
+  17. 历史行情数据会缓存在本地(localStorage),同一天内重复打开页面基本不会重新下载;但期货数据接口不支持按日期增量拉取,缓存过期后仍需完整重新下载一次,不算严重但也不是完全的"增量"。<br>
+  18. "每天最多3笔止盈"只统计"老仓位止盈"这一类操作,不含标准T、双边卖出;熔断只停止双边挂单的新开仓,不停止老仓位止盈,也不停止标准T——极端行情下多笔仓位同时达标,也只处理前3笔,其余留到第二天(甚至更久)才能排到,这段时间杠杆会比"立刻全部清仓"更高,是有意的权衡而非bug。<br>
+  22. 熔断只挡"双边挂单"这一种新开仓方式;"标准T"(开盘卖-1%买回)不受熔断影响,只要模型概率达到阈值,熔断期间照样正常执行①②卡片的标准T流程——回测显示这样比"熔断时全部停摆"多赚约2个百分点(2024-2026这段历史,不代表未来同样成立)。<br>
+  19. "实际杠杆率""累计收益对比"这两个panel只用你实际记录的持仓/卖出算,180日超额收益那个panel则始终是"假设从未熔断"的参考信号(专门用来判断要不要熔断,不代表实际账户表现)——两者故意分开,别混着看。"实际杠杆率"用的是你当前填的"账户总净值"作为分母,反推整段历史,不是逐日重建的真实净值,如果净值较早期变化很大,早期的杠杆率数字会有偏差,越靠近今天越准。持仓表格、卖出记录表格里的"编辑"按钮可以直接改历史记录(比如实际成交价跟建议价不同时用来订正),改完立刻重新计算所有曲线,请自行核对改得对不对。<br>
+  20. "账户总净值""底仓市值"这两个数字永远填"现在/最新"的实际值,不是某次历史时刻的值,也不需要跟同花顺之类其他软件里的历史记录对齐——这套0.9底仓+10%杠杆分笔的打法是从你开始用这个工具那天起才生效的新策略,不建议把之前用别的方式做的历史交易硬套进来;直接从今天的真实净值/底仓市值填起,持仓和卖出记录留空,后面跟着"今日操作清单"一笔笔记录即可,"实际组合"曲线自然会从第一笔记录开始往后画。<br>
+  21. 云同步用的 Gist 是"secret"不是真正私有——GitHub 不会公开列出它,但知道链接/ID的人不需要你的Token也能直接看到内容,请只用来存这类交易记录,不要存更敏感的信息。同步逻辑很简单:两个"推送/拉取"按钮都是全量覆盖(整份记录互相覆盖,不是逐条合并),没有做多设备同时改动的冲突合并;"自动推送"只会在你这台设备修改后自动把本机覆盖到云端,不会自动拉取覆盖本机,换新设备时需要手动点一次"从云端拉取"。Token 和 Gist ID 只存在浏览器本地,清缓存/换浏览器会丢,建议记在别处备份一份。
 </div>
 
 <script>
@@ -247,19 +296,102 @@ function jsonpScript(url, globalVar, timeoutMs=12000) {
   });
 }
 
+// ---------------- local cache for historical bars, so repeat visits don't re-download everything ----------------
+// Cache is keyed per series in localStorage. If cache is already up to date (lastDate >= today), the network
+// fetch is skipped entirely. Otherwise, for series whose API supports it (a small `datalen` recent window,
+// or an explicit date-range `beg` param) we only request the missing tail and concat it onto the cached bars;
+// for series without such a param (the CZCE/DCE/INE futures endpoint) we still avoid the request when fresh,
+// and otherwise fall back to a full re-fetch (unavoidable, but rare in practice).
+const HIST_CACHE_PREFIX = "histCache_v1_";
+function loadCachedSeries(key) {
+  try {
+    const raw = localStorage.getItem(HIST_CACHE_PREFIX + key);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return null;
+}
+function saveCachedSeries(key, bars) {
+  try {
+    localStorage.setItem(HIST_CACHE_PREFIX + key, JSON.stringify({ lastDate: bars[bars.length-1].date, bars }));
+  } catch (e) { console.warn("history cache save failed", e); }
+}
+function mergeBarsByDate(oldBars, newBars) {
+  const map = new Map(oldBars.map(b => [b.date, b]));
+  newBars.forEach(b => map.set(b.date, b));
+  return Array.from(map.values()).sort((a,b) => a.date < b.date ? -1 : (a.date > b.date ? 1 : 0));
+}
+
 async function fetchStockHistory() {
-  const url = "https://money.finance.sina.com.cn/quotes_service/api/jsonp.php/var%20_U_HIST=/CN_MarketData.getKLineData?symbol=sh600989&scale=240&ma=no&datalen=700";
+  const cacheKey = "stock_600989";
+  const cached = loadCachedSeries(cacheKey);
+  const today = todayDateStr();
+  if (cached && cached.lastDate >= today) return cached.bars;
+  const datalen = cached ? 30 : 700; // small incremental pull if we already have history cached
+  const url = `https://money.finance.sina.com.cn/quotes_service/api/jsonp.php/var%20_U_HIST=/CN_MarketData.getKLineData?symbol=sh600989&scale=240&ma=no&datalen=${datalen}`;
   const data = await jsonpScript(url, "_U_HIST");
-  return data.map(r => ({ date: r.day, open: +r.open, high: +r.high, low: +r.low, close: +r.close, volume: +r.volume }))
-             .filter(r => r.date >= "2024-01-01");
+  const fresh = data.map(r => ({ date: r.day, open: +r.open, high: +r.high, low: +r.low, close: +r.close, volume: +r.volume }))
+                     .filter(r => r.date >= "2024-01-01");
+  const merged = cached ? mergeBarsByDate(cached.bars, fresh) : fresh;
+  saveCachedSeries(cacheKey, merged);
+  return merged;
 }
 
 async function fetchFuturesHistory(symbol, varName) {
+  const cacheKey = "fut_" + symbol;
+  const cached = loadCachedSeries(cacheKey);
+  const today = todayDateStr();
+  if (cached && cached.lastDate >= today) return cached.bars;
+  // this endpoint has no date-range/recent-window param, so a stale cache still requires a full re-fetch
   const url = `https://stock2.finance.sina.com.cn/futures/api/jsonp.php/var%20${varName}=/InnerFuturesNewService.getDailyKLine?symbol=${symbol}`;
   const data = await jsonpScript(url, varName);
-  return data.map(r => ({ date: r.d, open: +r.o, high: +r.h, low: +r.l, close: +r.c, volume: +r.v }))
-             .filter(r => r.date >= "2024-01-01");
+  const fresh = data.map(r => ({ date: r.d, open: +r.o, high: +r.h, low: +r.l, close: +r.c, volume: +r.v }))
+                     .filter(r => r.date >= "2024-01-01");
+  saveCachedSeries(cacheKey, fresh);
+  return fresh;
 }
+
+// ---------------- optional benchmark indices: 上证50 / 沪深300 (Sina) and 中证红利低波 (Eastmoney, no Sina listing) ----------------
+async function fetchIndexHistorySina(sinaSymbol, cacheKey, varName) {
+  const cached = loadCachedSeries(cacheKey);
+  const today = todayDateStr();
+  if (cached && cached.lastDate >= today) return cached.bars;
+  const datalen = cached ? 30 : 700;
+  const url = `https://money.finance.sina.com.cn/quotes_service/api/jsonp.php/var%20${varName}=/CN_MarketData.getKLineData?symbol=${sinaSymbol}&scale=240&ma=no&datalen=${datalen}`;
+  const data = await jsonpScript(url, varName);
+  const fresh = data.map(r => ({ date: r.day, close: +r.close })).filter(r => r.date >= "2024-01-01");
+  const merged = cached ? mergeBarsByDate(cached.bars, fresh) : fresh;
+  saveCachedSeries(cacheKey, merged);
+  return merged;
+}
+
+async function fetchIndexHistoryEM(secid, cacheKey, labelForErrors) {
+  const cached = loadCachedSeries(cacheKey);
+  const today = todayDateStr();
+  if (cached && cached.lastDate >= today) return cached.bars;
+  const beg = cached ? cached.lastDate.replace(/-/g,"") : "20240101";
+  const end = today.replace(/-/g,"");
+  const url = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${secid}&fields1=f1,f2&fields2=f51,f53&klt=101&fqt=1&beg=${beg}&end=${end}`;
+  const resp = await fetch(url, { cache: "no-store" });
+  if (!resp.ok) throw new Error(`${labelForErrors}请求失败: HTTP ${resp.status}`);
+  const json = await resp.json();
+  const klines = (json.data && json.data.klines) || [];
+  const fresh = klines.map(line => { const [date, close] = line.split(","); return { date, close: +close }; })
+                       .filter(r => r.date >= "2024-01-01");
+  const merged = cached ? mergeBarsByDate(cached.bars, fresh) : fresh;
+  saveCachedSeries(cacheKey, merged);
+  return merged;
+}
+
+const BENCHMARK_FETCHERS = {
+  sz50: () => fetchIndexHistorySina("sh000016", "idx_sh000016", "_SZ50_HIST"),
+  hs300: () => fetchIndexHistorySina("sh000300", "idx_sh000300", "_HS300_HIST"),
+  hldb: () => fetchIndexHistoryEM("2.H30269", "idx_H30269", "红利低波指数"),
+  csi1000: () => fetchIndexHistorySina("sh000852", "idx_sh000852", "_CSI1000_HIST"),
+  csi2000: () => fetchIndexHistoryEM("2.932000", "idx_932000", "中证2000指数"),
+  cyb50: () => fetchIndexHistorySina("sz399673", "idx_sz399673", "_CYB50_HIST"),
+  kc50: () => fetchIndexHistorySina("sh000688", "idx_sh000688", "_KC50_HIST"),
+};
+const BENCHMARK_LABELS = { sz50: "上证50", hs300: "沪深300", hldb: "红利低波", csi1000: "中证1000", csi2000: "中证2000", cyb50: "创业板50", kc50: "科创50" };
 
 // Sina's hq.sinajs.cn checks Referer and returns 403 for any non-sina.com.cn page, so it cannot be
 // used from a standalone page. Eastmoney's push2delay quote endpoint has no such restriction and even
@@ -367,6 +499,11 @@ let currentStockPrevClose = null;
 let advBreakerState = null;    // {stopped, trailingExcess, lastTransitionDate, lastTransitionType}
 let cachedForAdv = null;       // {stockBars, futuresBars, model, mu, sd, warmup} -- cached after each fetch so
                                 // the breaker signal can be recomputed when sliders change without refetching
+let lastCounterfactual = null; // {equity, bench, leverage} from the most recent runCounterfactualSimulation call,
+                                // reused by the dashboard chart so it isn't recomputed a second time
+let dashboardRangeBars = 180;  // how many trading bars of history the dashboard chart currently shows ("all" = everything)
+const MAX_TRANCHE_SELLS_PER_DAY = 3; // cap on how many open tranches may close in a single day, so a rally right
+                                      // after a circuit-breaker stop doesn't dump many positions all at once
 
 // ---------------- advanced-mode state (persisted in localStorage) ----------------
 const ADV_KEY = "advStrategyState_v1";
@@ -375,29 +512,189 @@ function loadAdvState() {
     const raw = localStorage.getItem(ADV_KEY);
     if (raw) return JSON.parse(raw);
   } catch (e) {}
-  return { enabled: false, totalEquity: null, baselineValue: null, tranches: [] };
+  return { enabled: true, totalEquity: null, baselineValue: null, tranches: [], sellLog: [] };
 }
 function saveAdvState(state) {
   localStorage.setItem(ADV_KEY, JSON.stringify(state));
+  scheduleAutoPush(); // no-op unless cloud sync + auto-push are both configured (defined below)
 }
 let advState = loadAdvState();
+if (!advState.sellLog) advState.sellLog = []; // back-compat for state saved before this field existed
+if (!advState.benchmarks) advState.benchmarks = { sz50: false, hs300: false, hldb: false };
 
+// ---------------- cloud sync (optional, via a private GitHub Gist) ----------------
+// Only advState (net worth / baseline value / tranches / sellLog) is synced -- never the market-data
+// cache, and the token/gistId themselves live in a SEPARATE localStorage key so they never end up in
+// the CSV export or the plaintext "导出记录" view. GitHub's Gist REST API supports CORS from any origin,
+// so this works from a fully static page with no backend of its own.
+const SYNC_KEY = "cloudSyncConfig_v1";
+const GIST_FILENAME = "baofeng_advState.json";
+function loadSyncConfig() {
+  try {
+    const raw = localStorage.getItem(SYNC_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return { token: null, gistId: null, autoPush: false, lastPush: null, lastPull: null };
+}
+function saveSyncConfig(cfg) { localStorage.setItem(SYNC_KEY, JSON.stringify(cfg)); }
+let syncConfig = loadSyncConfig();
+
+function renderSyncUI() {
+  const tokenEl = document.getElementById("syncTokenInput");
+  if (!tokenEl) return; // account card not yet in the DOM on first call, harmless no-op
+  tokenEl.value = syncConfig.token || "";
+  document.getElementById("syncGistIdInput").value = syncConfig.gistId || "";
+  document.getElementById("syncAutoPushToggle").checked = !!syncConfig.autoPush;
+  const statusEl = document.getElementById("syncStatusMsg");
+  const parts = [];
+  if (syncConfig.lastPush) parts.push(`上次推送: ${new Date(syncConfig.lastPush).toLocaleString("zh-CN")}`);
+  if (syncConfig.lastPull) parts.push(`上次拉取: ${new Date(syncConfig.lastPull).toLocaleString("zh-CN")}`);
+  if (syncConfig.gistId) parts.push(`Gist: gist.github.com/${syncConfig.gistId}`);
+  statusEl.textContent = parts.join(" · ");
+  statusEl.className = "status";
+}
+
+async function githubGistRequest(method, path, body) {
+  if (!syncConfig.token) throw new Error("请先填写 GitHub Token");
+  const resp = await fetch(`https://api.github.com/gists${path}`, {
+    method,
+    headers: {
+      "Authorization": `Bearer ${syncConfig.token}`,
+      "Accept": "application/vnd.github+json",
+      "Content-Type": "application/json",
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!resp.ok) {
+    let detail = "";
+    try { const j = await resp.json(); detail = j.message || ""; } catch (e) {}
+    if (resp.status === 401) throw new Error("Token 无效或已过期 (401)");
+    if (resp.status === 404) throw new Error("Gist 不存在,或 Token 没有访问这个 Gist 的权限 (404)");
+    throw new Error(`GitHub API 错误 HTTP ${resp.status} ${detail}`);
+  }
+  return resp.json();
+}
+
+async function pushToGist() {
+  const statusEl = document.getElementById("syncStatusMsg");
+  if (!statusEl) return;
+  try {
+    statusEl.textContent = "推送中…"; statusEl.className = "status";
+    const content = JSON.stringify(advState, null, 1);
+    if (syncConfig.gistId) {
+      await githubGistRequest("PATCH", `/${syncConfig.gistId}`, { files: { [GIST_FILENAME]: { content } } });
+    } else {
+      const created = await githubGistRequest("POST", "", {
+        description: "做T信号 - 净值/持仓/卖出记录同步 (secret gist)",
+        public: false,
+        files: { [GIST_FILENAME]: { content } },
+      });
+      syncConfig.gistId = created.id;
+    }
+    syncConfig.lastPush = new Date().toISOString();
+    saveSyncConfig(syncConfig);
+    renderSyncUI();
+    statusEl.textContent = "推送成功"; statusEl.className = "status ok";
+  } catch (e) {
+    statusEl.textContent = "推送失败: " + e.message; statusEl.className = "status err";
+  }
+}
+
+async function pullFromGist() {
+  const statusEl = document.getElementById("syncStatusMsg");
+  if (!statusEl) return;
+  if (!syncConfig.gistId) { statusEl.textContent = "还没有 Gist ID,请先推送一次再拉取"; statusEl.className = "status err"; return; }
+  try {
+    statusEl.textContent = "拉取中…"; statusEl.className = "status";
+    const gist = await githubGistRequest("GET", `/${syncConfig.gistId}`);
+    const file = gist.files && gist.files[GIST_FILENAME];
+    if (!file) throw new Error("这个 Gist 里没有找到对应的记录文件");
+    const remote = JSON.parse(file.content);
+    advState = remote;
+    if (!advState.sellLog) advState.sellLog = [];
+    if (!advState.benchmarks) advState.benchmarks = { sz50: false, hs300: false, hldb: false };
+    localStorage.setItem(ADV_KEY, JSON.stringify(advState)); // bypass saveAdvState here to avoid an immediate auto-push-back
+    syncConfig.lastPull = new Date().toISOString();
+    saveSyncConfig(syncConfig);
+    applyAdvUIFromState();
+    if (cachedForAdv) recomputeBreakerStatus();
+    renderSyncUI();
+    statusEl.textContent = "拉取成功,已覆盖本机记录"; statusEl.className = "status ok";
+  } catch (e) {
+    statusEl.textContent = "拉取失败: " + e.message; statusEl.className = "status err";
+  }
+}
+
+let autoPushTimer = null;
+function scheduleAutoPush() {
+  if (!syncConfig || !syncConfig.autoPush || !syncConfig.token) return;
+  if (autoPushTimer) clearTimeout(autoPushTimer);
+  autoPushTimer = setTimeout(() => { pushToGist(); }, 3000);
+}
+
+async function maybeAutoPullOnLoad() {
+  const isEmptyLocal = advState.tranches.length === 0 && advState.sellLog.length === 0
+    && !advState.totalEquity && !advState.baselineValue;
+  if (syncConfig.token && syncConfig.gistId && isEmptyLocal) {
+    await pullFromGist();
+  }
+}
+
+let editingTrancheIdx = null;
 function renderTranchesTable() {
   const tbody = document.querySelector("#tranchesTable tbody");
   tbody.innerHTML = "";
   advState.tranches.forEach((tr, i) => {
     const target = tr.cost * 1.05;
     const row = document.createElement("tr");
-    row.innerHTML = `
-      <td>${tr.date}</td>
-      <td>${tr.shares}</td>
-      <td>${tr.cost.toFixed(2)}</td>
-      <td style="color:var(--green); font-weight:600">${target.toFixed(2)}</td>
-      <td><button class="del-btn" data-idx="${i}">删除</button></td>
-    `;
+    if (editingTrancheIdx === i) {
+      row.innerHTML = `
+        <td><input type="date" value="${tr.date}" style="width:130px" id="editTrDate${i}"></td>
+        <td><input type="number" value="${tr.shares}" style="width:80px" id="editTrShares${i}"></td>
+        <td><input type="number" step="0.01" value="${tr.cost}" style="width:80px" id="editTrCost${i}"></td>
+        <td style="color:var(--green); font-weight:600">${target.toFixed(2)}</td>
+        <td>
+          <button class="add-btn" data-save-idx="${i}" style="margin:0 4px 0 0; padding:2px 8px; font-size:12px">保存</button>
+          <button class="del-btn" data-cancel-idx="${i}">取消</button>
+        </td>
+      `;
+    } else {
+      row.innerHTML = `
+        <td>${tr.date}</td>
+        <td>${tr.shares}</td>
+        <td>${tr.cost.toFixed(2)}</td>
+        <td style="color:var(--green); font-weight:600">${target.toFixed(2)}</td>
+        <td>
+          <button class="edit-btn" data-edit-idx="${i}">编辑</button>
+          <button class="del-btn" data-idx="${i}">删除</button>
+        </td>
+      `;
+    }
     tbody.appendChild(row);
   });
-  tbody.querySelectorAll(".del-btn").forEach(btn => {
+  tbody.querySelectorAll("[data-edit-idx]").forEach(btn => {
+    btn.addEventListener("click", () => { editingTrancheIdx = parseInt(btn.dataset.editIdx); renderTranchesTable(); });
+  });
+  tbody.querySelectorAll("[data-cancel-idx]").forEach(btn => {
+    btn.addEventListener("click", () => { editingTrancheIdx = null; renderTranchesTable(); });
+  });
+  tbody.querySelectorAll("[data-save-idx]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const i = parseInt(btn.dataset.saveIdx);
+      const date = document.getElementById(`editTrDate${i}`).value;
+      const shares = parseFloat(document.getElementById(`editTrShares${i}`).value);
+      const cost = parseFloat(document.getElementById(`editTrCost${i}`).value);
+      if (date && shares && cost) {
+        advState.tranches[i] = { date, shares, cost };
+        saveAdvState(advState);
+      }
+      editingTrancheIdx = null;
+      renderTranchesTable();
+      renderExportView();
+      renderDecision();
+    });
+  });
+  tbody.querySelectorAll(".del-btn[data-idx]").forEach(btn => {
     btn.addEventListener("click", () => {
       advState.tranches.splice(parseInt(btn.dataset.idx), 1);
       saveAdvState(advState);
@@ -414,12 +711,14 @@ function applyAdvUIFromState() {
   document.getElementById("baselineValueInput").value = advState.baselineValue ?? "";
   renderTranchesTable();
   renderExportView();
+  renderSyncUI();
   toggleAdvancedCards();
 }
 
 function toggleAdvancedCards() {
   const on = document.getElementById("advancedModeToggle").checked;
-  ["breakerStatusCard","dualChartCard","accountCard","tranchesCard","exportCard"].forEach(id => {
+  document.getElementById("accountInputsBlock").style.display = on ? "block" : "none";
+  ["breakerStatusCard","dashboardCard","sellLogCard","exportCard"].forEach(id => {
     document.getElementById(id).style.display = on ? "block" : "none";
   });
   const dateEl = document.getElementById("newTrancheDate");
@@ -441,7 +740,150 @@ function renderExportView() {
       lines.push(`  ${i+1}. ${tr.date}  ${tr.shares}股  成本价${tr.cost.toFixed(2)}  止盈价${(tr.cost*1.05).toFixed(2)}`);
     });
   }
+  lines.push(`卖出记录 (${advState.sellLog.length}笔,详见"卖出记录"卡片)`);
   el.textContent = lines.join("\n");
+  renderSellLogTable();
+  renderDashboard();
+}
+
+let editingSellIdx = null;
+function renderSellLogTable() {
+  const tbody = document.querySelector("#sellLogTable tbody");
+  const empty = document.getElementById("sellLogEmpty");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  const log = [...advState.sellLog].reverse(); // most recent first
+  empty.style.display = log.length ? "none" : "block";
+  log.forEach((s) => {
+    const realIdx = advState.sellLog.indexOf(s);
+    const row = document.createElement("tr");
+    if (editingSellIdx === realIdx) {
+      row.innerHTML = `
+        <td><input type="date" value="${s.date}" style="width:130px" id="editSlDate${realIdx}"></td>
+        <td>${s.tag}</td>
+        <td><input type="number" value="${s.shares ?? ''}" style="width:70px" id="editSlShares${realIdx}"></td>
+        <td><input type="number" step="0.01" value="${s.buyPrice ?? ''}" style="width:80px" id="editSlBuy${realIdx}"></td>
+        <td><input type="number" step="0.01" value="${s.sellPrice ?? ''}" style="width:80px" id="editSlSell${realIdx}"></td>
+        <td>—</td>
+        <td>
+          <button class="add-btn" data-save-idx="${realIdx}" style="margin:0 4px 0 0; padding:2px 8px; font-size:12px">保存</button>
+          <button class="del-btn" data-cancel-idx="${realIdx}">取消</button>
+        </td>
+      `;
+    } else {
+      const pnl = (s.buyPrice && s.sellPrice) ? ((s.sellPrice/s.buyPrice-1)*100).toFixed(2)+"%" : "—";
+      row.innerHTML = `
+        <td>${s.date}</td><td>${s.tag}</td><td>${s.shares ?? "—"}</td>
+        <td>${s.buyPrice!=null ? s.buyPrice.toFixed(2) : "—"}</td>
+        <td>${s.sellPrice!=null ? s.sellPrice.toFixed(2) : "—"}</td>
+        <td>${pnl}</td>
+        <td>
+          <button class="edit-btn" data-edit-idx="${realIdx}">编辑</button>
+          <button class="del-btn" data-idx="${realIdx}">删除</button>
+        </td>
+      `;
+    }
+    tbody.appendChild(row);
+  });
+  tbody.querySelectorAll("[data-edit-idx]").forEach(btn => {
+    btn.addEventListener("click", () => { editingSellIdx = parseInt(btn.dataset.editIdx); renderSellLogTable(); });
+  });
+  tbody.querySelectorAll("[data-cancel-idx]").forEach(btn => {
+    btn.addEventListener("click", () => { editingSellIdx = null; renderSellLogTable(); });
+  });
+  tbody.querySelectorAll("[data-save-idx]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const i = parseInt(btn.dataset.saveIdx);
+      const date = document.getElementById(`editSlDate${i}`).value;
+      const sharesRaw = document.getElementById(`editSlShares${i}`).value;
+      const buyRaw = document.getElementById(`editSlBuy${i}`).value;
+      const sellRaw = document.getElementById(`editSlSell${i}`).value;
+      advState.sellLog[i] = {
+        ...advState.sellLog[i],
+        date: date || advState.sellLog[i].date,
+        shares: sharesRaw ? parseFloat(sharesRaw) : null,
+        buyPrice: buyRaw ? parseFloat(buyRaw) : null,
+        sellPrice: sellRaw ? parseFloat(sellRaw) : null,
+      };
+      saveAdvState(advState);
+      editingSellIdx = null;
+      renderSellLogTable();
+      renderExportView();
+    });
+  });
+  tbody.querySelectorAll(".del-btn[data-idx]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      advState.sellLog.splice(parseInt(btn.dataset.idx), 1);
+      saveAdvState(advState);
+      renderSellLogTable();
+      renderExportView();
+    });
+  });
+}
+
+// ---------------- CSV export / import ----------------
+function csvEscape(v) {
+  if (v === null || v === undefined) return "";
+  const s = String(v);
+  return /[,"\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+}
+
+function exportCsv() {
+  const rows = [["type","date","shares","price1","price2","tag","extra"]];
+  advState.tranches.forEach(tr => rows.push(["TRANCHE", tr.date, tr.shares, tr.cost, "", "", ""]));
+  advState.sellLog.forEach(s => rows.push(["SELL", s.date, s.shares ?? "", s.buyPrice ?? "", s.sellPrice ?? "", s.tag, s.buyDate ?? ""]));
+  const csv = rows.map(r => r.map(csvEscape).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `做T记录_${todayDateStr()}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function parseCsvLine(line) {
+  const out = []; let cur = ""; let inQ = false;
+  for (let i=0; i<line.length; i++) {
+    const c = line[i];
+    if (inQ) {
+      if (c === '"' && line[i+1] === '"') { cur += '"'; i++; }
+      else if (c === '"') inQ = false;
+      else cur += c;
+    } else {
+      if (c === '"') inQ = true;
+      else if (c === ",") { out.push(cur); cur = ""; }
+      else cur += c;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+function importCsvText(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+  if (lines.length < 2) return { added: 0 };
+  const header = parseCsvLine(lines[0]);
+  let added = 0;
+  for (let i=1; i<lines.length; i++) {
+    const cols = parseCsvLine(lines[i]);
+    const row = {}; header.forEach((h,j) => row[h] = cols[j]);
+    if (row.type === "TRANCHE") {
+      advState.tranches.push({ date: row.date, shares: parseFloat(row.shares), cost: parseFloat(row.price1) });
+      added++;
+    } else if (row.type === "SELL") {
+      advState.sellLog.push({
+        date: row.date, tag: row.tag || "导入记录",
+        shares: row.shares ? parseFloat(row.shares) : null,
+        buyPrice: row.price1 ? parseFloat(row.price1) : null,
+        sellPrice: row.price2 ? parseFloat(row.price2) : null,
+        buyDate: row.extra || undefined,
+      });
+      added++;
+    }
+  }
+  saveAdvState(advState);
+  return { added };
 }
 
 // ---------------- counterfactual "always-on, never-stopped" simulation ----------------
@@ -477,7 +919,7 @@ function runCounterfactualSimulation(stockBars, futuresBars, model, mu, sd, warm
   let baselineShares = BASE_FRAC/stockBars[0].close;
   let cash = 1.0-BASE_FRAC;
   let tranches = [];
-  const equity = [1.0], bench = [1.0];
+  const equity = [1.0], bench = [1.0], leverage = [BASE_FRAC];
 
   for (let t=1; t<n; t++) {
     bench.push(bench[bench.length-1]*(stockBars[t].close/stockBars[t-1].close));
@@ -493,10 +935,21 @@ function runCounterfactualSimulation(stockBars, futuresBars, model, mu, sd, warm
       baselineShares = baselineValT/stockBars[t].close;
     } else if (t >= warmup) {
       const o=stockBars[t].open, h=stockBars[t].high, l=stockBars[t].low, c=stockBars[t].close;
-      tranches = tranches.filter(tr => {
-        if (h >= tr.cost*(1+TARGET_PROFIT)) { cash += tr.shares*tr.cost*(1+TARGET_PROFIT)*(1-COST_LEG); return false; }
-        return true;
-      });
+      // tranches are always appended oldest-last (see push below), so iterating in array order and
+      // capping at MAX_TRANCHE_SELLS_PER_DAY closes the oldest-first; the rest wait for a later day
+      // even if their own +5% target was also touched today (avoids dumping many positions at once
+      // right after a rally that also trips the circuit breaker)
+      let soldToday = 0;
+      const stillOpen = [];
+      for (const tr of tranches) {
+        if (soldToday < MAX_TRANCHE_SELLS_PER_DAY && h >= tr.cost*(1+TARGET_PROFIT)) {
+          cash += tr.shares*tr.cost*(1+TARGET_PROFIT)*(1-COST_LEG);
+          soldToday++;
+        } else {
+          stillOpen.push(tr);
+        }
+      }
+      tranches = stillOpen;
       const buyTrigger = o*(1-B);
       const buyFires = l <= buyTrigger;
       const openVal = tranches.reduce((s,tr)=>s+tr.shares*c, 0);
@@ -513,72 +966,160 @@ function runCounterfactualSimulation(stockBars, futuresBars, model, mu, sd, warm
     } else {
       baselineValT = baselineShares*stockBars[t].close;
     }
-    const stockTotal = baselineValT + tranches.reduce((s,tr)=>s+tr.shares*stockBars[t].close, 0);
-    equity.push(stockTotal+cash);
+    const trancheVal = tranches.reduce((s,tr)=>s+tr.shares*stockBars[t].close, 0);
+    const stockTotal = baselineValT + trancheVal;
+    const eqT = stockTotal+cash;
+    equity.push(eqT);
+    leverage.push(eqT > 0 ? stockTotal/eqT : 1.0);
   }
-  return { equity, bench };
+  return { equity, bench, leverage };
 }
 
-// ---------------- lightweight dependency-free dual-axis SVG line chart ----------------
-// leftSeries/rightSeries: arrays of {x: label, y: value}, assumed to share the same x-index positions.
-function renderDualAxisChart(containerId, leftSeries, rightSeries, opts = {}) {
+// ---------------- unified interactive multi-panel chart, all panels share one x-axis ----------------
+// panels: [{ title, lines: [{label,color,map:Map<date,value>}], refLines?: [{value,color,label}], markers?: [{date,type}] }]
+// dates: the shared x-axis (array of "YYYY-MM-DD" strings, ascending). A line simply has gaps wherever
+// its map has no entry for a given date (drawn as a break, not interpolated) -- this is how "实际组合"
+// (which only starts once you've logged your first trade) can share an axis with series that go back further.
+function renderStackedCharts(containerId, dates, panels) {
   const container = document.getElementById(containerId);
-  const W = container.clientWidth || 600, H = opts.height || 240;
-  const padL = 50, padR = 50, padT = 14, padB = 26;
-  const plotW = W - padL - padR, plotH = H - padT - padB;
-  const n = leftSeries.length;
+  const n = dates.length;
+  if (n < 2) { container.innerHTML = `<div class="todo-sub">数据不足,无法绘图</div>`; return; }
+  const W = container.clientWidth || 600;
+  const padL = 54, padR = 54;
+  const panelH = 120, panelGap = 30, padT = 10, padBAxis = 22;
+  const plotW = W - padL - padR;
+  const axisY = padT + panels.length*panelH + (panels.length-1)*panelGap;
+  const totalH = axisY + padBAxis;
 
-  function scales(series, refLines) {
-    const ys = series.map(p => p.y);
-    let yMin = Math.min(...ys, ...(refLines||[]));
-    let yMax = Math.max(...ys, ...(refLines||[]));
-    if (yMin === yMax) { yMin -= 1; yMax += 1; }
-    const pad = (yMax-yMin)*0.10;
-    return { yMin: yMin-pad, yMax: yMax+pad };
-  }
   const xScale = i => padL + (i/(n-1))*plotW;
-  const left = scales(leftSeries);
-  const leftY = v => padT + plotH - ((v-left.yMin)/(left.yMax-left.yMin))*plotH;
-  const right = scales(rightSeries, opts.rightRefLines);
-  const rightY = v => padT + plotH - ((v-right.yMin)/(right.yMax-right.yMin))*plotH;
 
-  const leftPath = leftSeries.map((p,i) => `${i===0?"M":"L"}${xScale(i).toFixed(1)},${leftY(p.y).toFixed(1)}`).join(" ");
-  const rightPath = rightSeries.map((p,i) => `${i===0?"M":"L"}${xScale(i).toFixed(1)},${rightY(p.y).toFixed(1)}`).join(" ");
+  let svgBody = "";
+  panels.forEach((panel, pIdx) => {
+    const top = padT + pIdx*(panelH+panelGap);
+    const plotH = panelH;
 
-  let refLinesSvg = "";
-  (opts.rightRefLines||[]).forEach((v,i) => {
-    const y = rightY(v);
-    const color = (opts.rightRefColors && opts.rightRefColors[i]) || "var(--muted)";
-    const label = (opts.rightRefLabels && opts.rightRefLabels[i]) || `${v}`;
-    refLinesSvg += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="${color}" stroke-width="1" stroke-dasharray="4,3"/>`;
-    refLinesSvg += `<text x="${W-padR+4}" y="${(y+3).toFixed(1)}" font-size="10" fill="${color}">${label}</text>`;
+    const allY = [];
+    panel.lines.forEach(line => dates.forEach(d => { const v = line.map.get(d); if (v!=null && !isNaN(v)) allY.push(v); }));
+    (panel.refLines||[]).forEach(r => allY.push(r.value));
+    let yMin = allY.length ? Math.min(...allY) : 0, yMax = allY.length ? Math.max(...allY) : 1;
+    if (yMin === yMax) { yMin -= 1; yMax += 1; }
+    const pad = (yMax-yMin)*0.12;
+    yMin -= pad; yMax += pad;
+    const yScale = v => top + plotH - ((v-yMin)/(yMax-yMin))*plotH;
+
+    svgBody += `<text x="${padL}" y="${(top-2).toFixed(1)}" font-size="11" fill="var(--muted)" font-weight="600">${panel.title}</text>`;
+    svgBody += `<rect x="${padL}" y="${top}" width="${plotW}" height="${plotH}" fill="none" stroke="var(--border)" stroke-width="1"/>`;
+
+    (panel.refLines||[]).forEach(r => {
+      const y = yScale(r.value);
+      svgBody += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="${r.color}" stroke-width="1" stroke-dasharray="4,3"/>`;
+      svgBody += `<text x="${W-padR+4}" y="${(y+3).toFixed(1)}" font-size="9" fill="${r.color}">${r.label}</text>`;
+    });
+
+    (panel.markers||[]).forEach(m => {
+      const idx = dates.indexOf(m.date);
+      if (idx < 0) return;
+      const x = xScale(idx);
+      const color = m.type === "STOP" ? "var(--red)" : "var(--green)";
+      svgBody += `<line x1="${x.toFixed(1)}" y1="${top}" x2="${x.toFixed(1)}" y2="${top+plotH}" stroke="${color}" stroke-width="1.5"/>`;
+    });
+
+    panel.lines.forEach(line => {
+      let d = ""; let started = false;
+      dates.forEach((date, i) => {
+        const v = line.map.get(date);
+        if (v == null || isNaN(v)) { started = false; return; }
+        d += `${started?"L":"M"}${xScale(i).toFixed(1)},${yScale(v).toFixed(1)} `;
+        started = true;
+      });
+      svgBody += `<path d="${d}" fill="none" stroke="${line.color}" stroke-width="1.8"/>`;
+    });
+
+    svgBody += `<text x="${(padL-6).toFixed(1)}" y="${(top+10).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${(yMax-pad).toFixed(1)}</text>`;
+    svgBody += `<text x="${(padL-6).toFixed(1)}" y="${(top+plotH).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${(yMin+pad).toFixed(1)}</text>`;
+
+    if (panel.lines.length > 1) {
+      let lx = padL;
+      panel.lines.forEach(line => {
+        svgBody += `<rect x="${lx}" y="${top+plotH+5}" width="8" height="8" fill="${line.color}"/>`;
+        svgBody += `<text x="${lx+11}" y="${top+plotH+13}" font-size="9" fill="var(--text)">${line.label}</text>`;
+        lx += 20 + line.label.length*7;
+      });
+    }
   });
 
-  const idxs = [0, Math.floor((n-1)/2), n-1];
-  let xLabelsSvg = "";
-  idxs.forEach(i => {
-    xLabelsSvg += `<text x="${xScale(i).toFixed(1)}" y="${H-6}" text-anchor="middle" font-size="10" fill="var(--muted)">${leftSeries[i].x}</text>`;
+  const N_TICKS = Math.min(7, n);
+  const tickIdxs = Array.from({length:N_TICKS}, (_,k) => Math.round(k*(n-1)/(N_TICKS-1)));
+  let axisSvg = "";
+  tickIdxs.forEach(i => {
+    const x = xScale(i);
+    axisSvg += `<line x1="${x.toFixed(1)}" y1="${axisY}" x2="${x.toFixed(1)}" y2="${axisY+4}" stroke="var(--muted)" stroke-width="1"/>`;
+    axisSvg += `<text x="${x.toFixed(1)}" y="${axisY+16}" text-anchor="middle" font-size="10" fill="var(--muted)">${dates[i].slice(5)}</text>`;
   });
 
-  const leftLabelsSvg = `
-    <text x="${padL-6}" y="${(padT+10)}" text-anchor="end" font-size="10" fill="var(--blue)">${left.yMax.toFixed(2)}</text>
-    <text x="${padL-6}" y="${(padT+plotH)}" text-anchor="end" font-size="10" fill="var(--blue)">${left.yMin.toFixed(2)}</text>
-  `;
-  const rightLabelsSvg = `
-    <text x="${W-padR+4}" y="${(padT+10)}" font-size="10" fill="var(--amber)">${right.yMax.toFixed(0)}%</text>
-    <text x="${W-padR+4}" y="${(padT+plotH)}" font-size="10" fill="var(--amber)">${right.yMin.toFixed(0)}%</text>
-  `;
+  const crosshairSvg = `<line id="dashCrosshair" x1="0" y1="${padT}" x2="0" y2="${axisY}" stroke="var(--text)" stroke-width="1" stroke-dasharray="2,2" opacity="0" pointer-events="none"/>`;
+  const tooltipSvg = `<g id="dashTooltip" opacity="0" pointer-events="none"></g>`;
 
   container.innerHTML = `
-    <svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" style="display:block">
-      ${refLinesSvg}
-      <path d="${leftPath}" fill="none" stroke="var(--blue)" stroke-width="2"/>
-      <path d="${rightPath}" fill="none" stroke="var(--amber)" stroke-width="2"/>
-      ${leftLabelsSvg}
-      ${rightLabelsSvg}
-      ${xLabelsSvg}
+    <svg id="dashSvg" viewBox="0 0 ${W} ${totalH}" width="100%" height="${totalH}" style="display:block; cursor:crosshair">
+      ${svgBody}
+      ${axisSvg}
+      ${crosshairSvg}
+      ${tooltipSvg}
+      <rect id="dashOverlay" x="${padL}" y="0" width="${plotW}" height="${axisY}" fill="transparent"/>
     </svg>
   `;
+
+  attachDashboardHover(container, dates, panels, { W, padL, padR, plotW });
+}
+
+function attachDashboardHover(container, dates, panels, geom) {
+  const svg = container.querySelector("#dashSvg");
+  const overlay = container.querySelector("#dashOverlay");
+  const crosshair = container.querySelector("#dashCrosshair");
+  const tooltip = container.querySelector("#dashTooltip");
+  const n = dates.length;
+  const { padL, padR, plotW, W } = geom;
+  const xScale = i => padL + (i/(n-1))*plotW;
+
+  function showAt(clientX) {
+    const rect = svg.getBoundingClientRect();
+    if (!rect.width) return;
+    const scaleX = W / rect.width;
+    const mx = (clientX - rect.left) * scaleX;
+    let idx = Math.round(((mx - padL) / plotW) * (n-1));
+    idx = Math.max(0, Math.min(n-1, idx));
+    const x = xScale(idx);
+    crosshair.setAttribute("x1", x.toFixed(1));
+    crosshair.setAttribute("x2", x.toFixed(1));
+    crosshair.setAttribute("opacity", "1");
+
+    const boxLines = [dates[idx]];
+    panels.forEach(panel => {
+      panel.lines.forEach(line => {
+        const v = line.map.get(dates[idx]);
+        if (v == null || isNaN(v)) return;
+        boxLines.push(`${line.label}: ${v.toFixed(2)}`);
+      });
+    });
+    const boxW = 165, lineH = 13, boxH = boxLines.length*lineH + 8;
+    const flipLeft = x + 10 + boxW > W - padR;
+    const boxX = flipLeft ? x - 10 - boxW : x + 10;
+    let html = `<rect x="${boxX.toFixed(1)}" y="8" width="${boxW}" height="${boxH}" fill="#10141a" stroke="var(--border)" rx="6"/>`;
+    boxLines.forEach((t, i) => {
+      html += `<text x="${(boxX+8).toFixed(1)}" y="${(8+16+i*lineH).toFixed(1)}" font-size="10" fill="${i===0?'var(--text)':'var(--muted)'}">${t}</text>`;
+    });
+    tooltip.innerHTML = html;
+    tooltip.setAttribute("opacity", "1");
+  }
+  function hide() {
+    crosshair.setAttribute("opacity", "0");
+    tooltip.setAttribute("opacity", "0");
+  }
+  overlay.addEventListener("mousemove", (e) => showAt(e.clientX));
+  overlay.addEventListener("mouseleave", hide);
+  overlay.addEventListener("touchmove", (e) => { if (e.touches[0]) showAt(e.touches[0].clientX); }, {passive:true});
+  overlay.addEventListener("touchend", hide);
 }
 
 function computeSignalSeries(stockBars, cf, windowDays) {
@@ -605,6 +1146,7 @@ function computeBreakerStatus(stockBars, cf) {
   let stopped = false;
   let lastTransition = null;
   let lastSignal = null;
+  const transitions = [];
   for (let t=1; t<n; t++) {
     let ref = null;
     for (let tp=t; tp>=0; tp--) {
@@ -613,10 +1155,10 @@ function computeBreakerStatus(stockBars, cf) {
     if (ref === null) continue;
     const sig = (cf.equity[t]/cf.equity[ref]-1) - (cf.bench[t]/cf.bench[ref]-1);
     lastSignal = sig;
-    if (!stopped && sig >= STOP_THRESH) { stopped = true; lastTransition = {date: stockBars[t].date, type:"STOP"}; }
-    else if (stopped && sig <= RESUME_THRESH) { stopped = false; lastTransition = {date: stockBars[t].date, type:"RESUME"}; }
+    if (!stopped && sig >= STOP_THRESH) { stopped = true; lastTransition = {date: stockBars[t].date, type:"STOP"}; transitions.push(lastTransition); }
+    else if (stopped && sig <= RESUME_THRESH) { stopped = false; lastTransition = {date: stockBars[t].date, type:"RESUME"}; transitions.push(lastTransition); }
   }
-  return { stopped, trailingExcess: lastSignal, lastTransition };
+  return { stopped, trailingExcess: lastSignal, lastTransition, transitions };
 }
 
 function recomputeBreakerStatus() {
@@ -625,27 +1167,146 @@ function recomputeBreakerStatus() {
   const B = parseFloat(document.getElementById("bracketLowerSlider").value);
   const { stockBars, futuresBars, model, mu, sd, warmup } = cachedForAdv;
   const cf = runCounterfactualSimulation(stockBars, futuresBars, model, mu, sd, warmup, X, B);
+  lastCounterfactual = cf;
   advBreakerState = computeBreakerStatus(stockBars, cf);
   renderBreakerStatus();
-  renderDualChart(stockBars, cf);
+  renderDashboard();
   renderDecision();
 }
 
-function renderDualChart(stockBars, cf) {
-  const WINDOW = 180;
-  const signalSeries = computeSignalSeries(stockBars, cf, WINDOW);
-  if (signalSeries.length < 2) return;
-  const firstDate = signalSeries[0].x;
-  const priceSeries = stockBars
-    .filter(r => r.date >= firstDate)
-    .slice(-signalSeries.length)
-    .map(r => ({ x: r.date, y: r.close }));
-  renderDualAxisChart("dualChartContainer", priceSeries, signalSeries, {
-    height: 240,
-    rightRefLines: [20, 0],
-    rightRefColors: ["var(--red)", "var(--green)"],
-    rightRefLabels: ["停摆20%", "解除0%"],
+// ---------------- reconstruct the REAL portfolio's equity curve from recorded trades ----------------
+// Uses: open tranches (advState.tranches), closed tranches with a known buyDate (sellLog entries
+// tagged "老仓位止盈"), and same-day self-contained trades (标准T / 双边卖出, sized as 10% of the
+// account's current total equity input, applied as a one-day realized cash bump on their date).
+// Everything before the earliest recorded event is out of scope -- this cannot reconstruct history
+// that predates when you started logging trades in this tool.
+// "账户设置" (total equity / baseline value) is always read as a CURRENT snapshot -- whatever you
+// last typed in, as of the latest available close -- never as a value "as of" some past date. The
+// baseline share count is backed out from that current value at the current price and then held
+// fixed across the whole reconstructed window (the 0.9 baseline is buy-and-hold by design).
+function reconstructActualEquityCurve(stockBars) {
+  const lifecycles = [];
+  advState.tranches.forEach(tr => lifecycles.push({ buyDate: tr.date, sellDate: null, shares: tr.shares, cost: tr.cost, sellPrice: null }));
+  advState.sellLog.forEach(s => {
+    if (s.buyDate) lifecycles.push({ buyDate: s.buyDate, sellDate: s.date, shares: s.shares, cost: s.buyPrice, sellPrice: s.sellPrice });
   });
+  const instantEvents = advState.sellLog.filter(s => !s.buyDate && s.buyPrice != null && s.sellPrice != null);
+
+  if (lifecycles.length === 0 && instantEvents.length === 0) return null;
+
+  const startDate = [...lifecycles.map(t=>t.buyDate), ...instantEvents.map(e=>e.date)].reduce((a,b) => a<b?a:b);
+  const bars = stockBars.filter(b => b.date >= startDate);
+  if (bars.length === 0) return null;
+
+  const baselineValue = parseFloat(document.getElementById("baselineValueInput").value) || 0;
+  const totalEquity = parseFloat(document.getElementById("totalEquityInput").value) || 0;
+  const latestClose = stockBars[stockBars.length-1].close;
+  const baselineShares = baselineValue ? baselineValue / latestClose : 0;
+
+  let realizedCash = 0;
+  const series = [];
+  bars.forEach(bar => {
+    lifecycles.forEach(t => { if (t.sellDate === bar.date) realizedCash += t.shares * (t.sellPrice - t.cost); });
+    instantEvents.forEach(e => {
+      if (e.date === bar.date && totalEquity) realizedCash += totalEquity*0.10 * (e.sellPrice/e.buyPrice - 1);
+    });
+    const openVal = lifecycles
+      .filter(t => t.buyDate <= bar.date && (t.sellDate === null || t.sellDate > bar.date))
+      .reduce((s,t) => s + t.shares*bar.close, 0);
+    const exposure = baselineShares*bar.close + openVal; // stock exposure only, excludes cash
+    series.push({ date: bar.date, value: exposure + realizedCash, exposure });
+  });
+  return { series, startDate };
+}
+
+// ---------------- unified dashboard: price / 180d excess / leverage / actual-vs-benchmarks ----------------
+// All four panels share one x-axis (see renderStackedCharts above). dashboardRangeBars controls how much
+// history is shown; changing it or the benchmark checkboxes just re-slices/re-renders, no refetch needed
+// except for benchmark series the first time a given checkbox is turned on (then it's cached like the rest).
+const BENCHMARK_CHECK_IDS = { sz50: "benchSz50", hs300: "benchHs300", hldb: "benchHldb", csi1000: "benchCsi1000", csi2000: "benchCsi2000", cyb50: "benchCyb50", kc50: "benchKc50" };
+const BENCHMARK_COLORS = { sz50: "var(--amber)", hs300: "var(--red)", hldb: "#a855f7", csi1000: "#22d3ee", csi2000: "#fb7185", cyb50: "#84cc16", kc50: "#f472b6" };
+
+async function renderDashboard() {
+  if (!cachedForAdv || !lastCounterfactual) return;
+  const stockBars = cachedForAdv.stockBars;
+  const cf = lastCounterfactual;
+  const n = stockBars.length;
+
+  const allDates = stockBars.map(r => r.date);
+  const rangeN = dashboardRangeBars === "all" ? n : Math.min(n, dashboardRangeBars);
+  const dates = allDates.slice(n - rangeN);
+
+  const priceMap = new Map(stockBars.map(r => [r.date, r.close]));
+
+  // panel 2 stays purely the counterfactual ("假设从未熔断") reference signal -- this is what actually
+  // drives the STOP/RESUME decision via a rolling 180-day window, so it must stay a rolling/reference
+  // metric, not a cumulative-since-day-1 one; adding an "actual" line here wouldn't make sense.
+  const fullSignal = computeSignalSeries(stockBars, cf, null);
+  const signalMap = new Map(fullSignal.map(p => [p.x, p.y]));
+  const dateSet = new Set(dates);
+  const markers = (advBreakerState && advBreakerState.transitions || []).filter(m => dateSet.has(m.date));
+
+  const panels = [
+    { title: "股价", lines: [{ label:"600989", color:"var(--blue)", map: priceMap }] },
+    { title: "180日超额收益(%,参考策略假设从未熔断,熔断判据)", lines: [{ label:"超额收益", color:"var(--amber)", map: signalMap }],
+      refLines: [{ value:20, color:"var(--red)", label:"停摆20%" }, { value:0, color:"var(--green)", label:"解除0%" }],
+      markers },
+  ];
+
+  // panels 3-4 are both driven by your REAL logged trades, not the counterfactual -- only appear once
+  // there's at least one recorded tranche/sell, since there's no way to know actual leverage/excess
+  // return before you started using this tool
+  const recon = reconstructActualEquityCurve(stockBars);
+  const panel4HasData = !!recon;
+  document.getElementById("dashboardEmpty").style.display = panel4HasData ? "none" : "block";
+  if (recon) {
+    const { series, startDate } = recon;
+    const startVal = series[0].value;
+    // leverage = 敞口/账户总净值, using the CURRENT totalEquity input as a fixed reference point
+    // throughout (same definition currentLeverageIfBuy() uses for "今天"). This is not perfectly
+    // time-consistent -- if your real net worth has grown/shrunk a lot since older trades, the ratio
+    // for those older days will be somewhat off -- but there's no historical net-worth series to
+    // reconstruct from, so this is the closest honest approximation; keep 账户总净值 up to date and
+    // trust recent dates on this chart most.
+    const totalEquityNow = parseFloat(document.getElementById("totalEquityInput").value) || 0;
+    const leverageMap = totalEquityNow > 0
+      ? new Map(series.map(p => [p.date, p.exposure/totalEquityNow]))
+      : new Map();
+    panels.push({ title: "实际杠杆率(倍,敞口/账户总净值)", lines: [{ label:"实际杠杆率", color:"#a855f7", map: leverageMap }],
+      refLines: [{ value:1.5, color:"var(--red)", label:"软顶1.5" }] });
+
+    const actualMap = new Map(series.map(p => [p.date, (p.value/startVal-1)*100]));
+    const barsInRange = stockBars.filter(b => b.date >= startDate);
+    const stockStartClose = barsInRange[0].close;
+    const holdMap = new Map(barsInRange.map(b => [b.date, (b.close/stockStartClose-1)*100]));
+    // cumulative excess return SINCE DAY 1 of your actual records (not a rolling window like panel 2) --
+    // just the actual-vs-hold gap, exposed as its own line instead of making you eyeball it
+    const excessMap = new Map();
+    holdMap.forEach((holdPct, date) => {
+      const actualPct = actualMap.get(date);
+      if (actualPct != null) excessMap.set(date, actualPct - holdPct);
+    });
+    const panel4Lines = [
+      { label: "实际组合", color: "var(--blue)", map: actualMap },
+      { label: "100%持有", color: "var(--green)", map: holdMap },
+      { label: "累计超额收益", color: "#e2e8f0", map: excessMap },
+    ];
+    for (const key of Object.keys(BENCHMARK_CHECK_IDS)) {
+      const cb = document.getElementById(BENCHMARK_CHECK_IDS[key]);
+      if (!cb || !cb.checked) continue;
+      try {
+        const bench = await BENCHMARK_FETCHERS[key]();
+        const firstBar = bench.find(b => b.date >= startDate);
+        if (!firstBar) continue;
+        const bmap = new Map();
+        bench.forEach(b => { if (b.date >= startDate) bmap.set(b.date, (b.close/firstBar.close-1)*100); });
+        panel4Lines.push({ label: BENCHMARK_LABELS[key], color: BENCHMARK_COLORS[key], map: bmap });
+      } catch (e) { console.warn("benchmark fetch failed", key, e); }
+    }
+    panels.push({ title: "累计收益对比(%,从第一笔记录起累计,非滚动窗口)", lines: panel4Lines });
+  }
+
+  renderStackedCharts("dashboardContainer", dates, panels);
 }
 
 function currentLeverageIfBuy(newTrancheValue) {
@@ -682,19 +1343,38 @@ function renderTodoList() {
   const stopped = isBreakerStopped();
   const execute = currentModeExecute();
 
-  if (stopped) {
-    addItem({ title: "策略熔断中,今日不新开任何操作", sub: "不集合竞价卖出,不新开双边挂单", checkable: false });
-  } else if (execute) {
+  function logSell(entry) {
+    advState.sellLog.push({ date: today, ...entry });
+    saveAdvState(advState);
+  }
+
+  if (execute) {
     if (currentStockOpen === null) {
       addItem({ title: "9:15-9:25 集合竞价挂卖出", sub: "开盘价出来后刷新页面看买回价", checkable: true, checked: false, onToggle: () => {} });
     } else {
       const buyTarget = currentStockOpen * 0.99;
+      const alreadyConfirmed = advState.stdTConfirmedDate === today;
       addItem({
-        title: `买入挂单价 ${buyTarget.toFixed(2)}`,
-        sub: `开盘价${currentStockOpen.toFixed(2)} -1%,若全天没跌到则收盘价买回`,
-        checkable: true, checked: false, onToggle: () => {}
+        title: alreadyConfirmed ? `已记录: ${today} 标准T 卖${currentStockOpen.toFixed(2)}/买${buyTarget.toFixed(2)}` : `买入挂单价 ${buyTarget.toFixed(2)}`,
+        sub: alreadyConfirmed ? "取消勾选可撤销这条记录" : `开盘价${currentStockOpen.toFixed(2)} -1%,若全天没跌到则收盘价买回 — 成交后勾选记入卖出记录`,
+        checkable: isAdvancedMode(),
+        checked: alreadyConfirmed,
+        onToggle: (isChecked) => {
+          if (isChecked) {
+            logSell({ tag: "标准T", shares: null, buyPrice: buyTarget, sellPrice: currentStockOpen });
+            advState.stdTConfirmedDate = today;
+          } else {
+            const idx = advState.sellLog.findIndex(s => s.date===today && s.tag==="标准T");
+            if (idx>=0) advState.sellLog.splice(idx,1);
+            advState.stdTConfirmedDate = null;
+            saveAdvState(advState);
+          }
+          renderExportView(); renderTodoList();
+        }
       });
     }
+  } else if (stopped) {
+    addItem({ title: "不满足标准T,且熔断中不新开双边挂单", sub: "熔断只挡双边挂单的新买入,标准T本身不受影响;老仓位止盈继续正常进行(见下方,每天最多3笔)", checkable: false });
   } else {
     if (currentStockOpen === null) {
       addItem({ title: "双边挂单准备中", sub: "9:25开盘价出来后刷新页面看具体价格", checkable: false });
@@ -703,13 +1383,28 @@ function renderTodoList() {
       const B = parseFloat(document.getElementById("bracketLowerSlider").value);
       const sellTarget = currentStockOpen * (1+X);
       const buyTarget = currentStockOpen * (1-B);
-      addItem({
-        title: `双边挂单: 卖 ${sellTarget.toFixed(2)} / 买 ${buyTarget.toFixed(2)}`,
-        sub: "卖出成交(以当天原价位了结)无需记录;买入成交如果没等到卖出,请勾选下面这条",
-        checkable: false
-      });
+      addItem({ title: `双边挂单: 卖 ${sellTarget.toFixed(2)} / 买 ${buyTarget.toFixed(2)}`, sub: "两边同时挂,数量相同,分别用下面两条记录成交情况", checkable: false });
 
       if (isAdvancedMode()) {
+        const sellConfirmed = advState.bracketSellConfirmedDate === today;
+        addItem({
+          title: sellConfirmed ? `已记录: ${today} 双边卖出成交 @ ${sellTarget.toFixed(2)}` : `卖出已成交 @ ${sellTarget.toFixed(2)}`,
+          sub: sellConfirmed ? "取消勾选可撤销这条记录" : "当天原有仓位在这个价位了结,勾选记入卖出记录",
+          checkable: true, checked: sellConfirmed,
+          onToggle: (isChecked) => {
+            if (isChecked) {
+              logSell({ tag: "双边卖出", shares: null, buyPrice: null, sellPrice: sellTarget });
+              advState.bracketSellConfirmedDate = today;
+            } else {
+              const idx = advState.sellLog.findIndex(s => s.date===today && s.tag==="双边卖出");
+              if (idx>=0) advState.sellLog.splice(idx,1);
+              advState.bracketSellConfirmedDate = null;
+              saveAdvState(advState);
+            }
+            renderExportView(); renderTodoList();
+          }
+        });
+
         const alreadyConfirmed = advState.buyConfirmedDate === today && advState.buyConfirmedPrice != null;
         addItem({
           title: alreadyConfirmed
@@ -742,15 +1437,27 @@ function renderTodoList() {
   }
 
   if (isAdvancedMode() && advState.tranches.length > 0) {
+    const soldTodayCount = advState.sellLog.filter(s => s.date === today && s.tag === "老仓位止盈").length;
+    let remaining = MAX_TRANCHE_SELLS_PER_DAY - soldTodayCount;
     advState.tranches.forEach((tr, i) => {
       const target = tr.cost * 1.05;
+      if (remaining <= 0) {
+        addItem({
+          title: `老仓位止盈: 卖 ${target.toFixed(2)}(今日暂不挂)`,
+          sub: `${tr.date}买入 ${tr.shares}股 成本${tr.cost.toFixed(2)} — 今日止盈笔数已达上限(${MAX_TRANCHE_SELLS_PER_DAY}笔),这笔今天不要挂止盈单,明天再继续挂`,
+          checkable: false,
+        });
+        return;
+      }
+      remaining--;
       addItem({
         title: `老仓位止盈: 卖 ${target.toFixed(2)}`,
-        sub: `${tr.date}买入 ${tr.shares}股 成本${tr.cost.toFixed(2)} — 今天继续挂这个卖价,成交后勾选`,
+        sub: `${tr.date}买入 ${tr.shares}股 成本${tr.cost.toFixed(2)} — 今天继续挂这个卖价,成交后勾选(今日还可挂${remaining+1}笔)`,
         checkable: true,
         checked: false,
         onToggle: (isChecked) => {
           if (isChecked) {
+            logSell({ tag: "老仓位止盈", shares: tr.shares, buyPrice: tr.cost, sellPrice: target, buyDate: tr.date });
             advState.tranches.splice(i,1);
             saveAdvState(advState);
             renderTranchesTable();
@@ -898,19 +1605,20 @@ function renderDecision() {
   const thresh = parseFloat(document.getElementById("thresholdSlider").value);
   const decisionCard = document.getElementById("decisionCard");
   const execute = currentModeExecute();
+  const stopped = isBreakerStopped();
 
-  if (isBreakerStopped()) {
+  if (stopped && !execute) {
     decisionCard.innerHTML = `
-      <div class="label">① 9:00左右看这里 — 高级模式熔断中</div>
-      <div class="verdict hold">✗ 熔断中,今日不做任何新操作(不集合竞价卖出,不新开双边挂单)</div>
-      <div class="prob">模型概率仍为 <b>${(currentProb*100).toFixed(1)}%</b>,但因180日熔断状态为"停摆",本次跳过 — 只需按下方"持仓中的杠杆仓位"处理老仓位的止盈单</div>
+      <div class="label">① 9:00左右看这里 — 高级模式熔断中(仅停双边挂单)</div>
+      <div class="verdict hold">✗ 不满足标准T条件,且熔断中不新开双边挂单仓位</div>
+      <div class="prob">预测概率 <b>${(currentProb*100).toFixed(1)}%</b> < 阈值 ${(thresh*100).toFixed(0)}%,不够标准T——熔断只挡双边挂单的新买入,标准T本身不受影响;老仓位止盈仍按"今日操作清单"继续挂(每天最多3笔),直到全部清完才会变成纯持有</div>
     `;
     renderOpenPriceDecision();
     return;
   }
 
   decisionCard.innerHTML = `
-    <div class="label">① 9:00左右看这里 — 今日触及开盘价-1%的预测概率</div>
+    <div class="label">① 9:00左右看这里 — 今日触及开盘价-1%的预测概率${stopped ? '(熔断中,但标准T不受影响)' : ''}</div>
     <div class="verdict ${execute?'execute':'hold'}">${execute ? "✓ 建议9:15-9:25集合竞价挂卖出" : "✗ 不满足条件,9:25看下面的双边挂单价"}</div>
     <div class="prob">预测概率 <b>${(currentProb*100).toFixed(1)}%</b> ${execute?'≥':'<'} 阈值 ${(thresh*100).toFixed(0)}%</div>
   `;
@@ -921,12 +1629,13 @@ function renderOpenPriceDecision() {
   const card = document.getElementById("openDecisionCard");
   if (currentProb === null) return;
   const execute = currentModeExecute();
+  const stopped = isBreakerStopped();
 
-  if (isBreakerStopped()) {
+  if (stopped && !execute) {
     card.innerHTML = `
-      <div class="label">② 高级模式熔断中</div>
-      <div class="verdict" style="color:var(--muted); font-size:18px">今日无需挂开盘价相关的新单</div>
-      <div class="prob">看下方"今日操作清单",那些老仓位的止盈单该挂还是要继续挂</div>
+      <div class="label">② 高级模式熔断中(仅停双边挂单)</div>
+      <div class="verdict" style="color:var(--muted); font-size:18px">今日不新开双边挂单仓位</div>
+      <div class="prob">看下方"今日操作清单",老仓位的止盈单该挂还是要继续挂(每天最多3笔)</div>
     `;
     renderTodoList();
     return;
@@ -979,17 +1688,21 @@ function renderOpenPriceDecision() {
   renderTodoList();
 }
 
+function onPredictionParamChange() {
+  if (isAdvancedMode() && cachedForAdv) recomputeBreakerStatus();
+  else renderDecision();
+}
 document.getElementById("thresholdSlider").addEventListener("input", (e) => {
   document.getElementById("threshold-val").textContent = parseFloat(e.target.value).toFixed(2);
-  renderDecision();
+  onPredictionParamChange();
 });
 document.getElementById("bracketUpperSlider").addEventListener("input", (e) => {
   document.getElementById("bracket-upper-val").textContent = (parseFloat(e.target.value)*100).toFixed(1) + "%";
-  renderOpenPriceDecision();
+  onPredictionParamChange();
 });
 document.getElementById("bracketLowerSlider").addEventListener("input", (e) => {
   document.getElementById("bracket-lower-val").textContent = (parseFloat(e.target.value)*100).toFixed(1) + "%";
-  renderOpenPriceDecision();
+  onPredictionParamChange();
 });
 document.getElementById("refreshBtn").addEventListener("click", runPipeline);
 
@@ -1033,7 +1746,69 @@ document.getElementById("addTrancheBtn").addEventListener("click", () => {
   dateEl.value = new Date().toISOString().slice(0,10); sharesEl.value = ""; costEl.value = "";
 });
 
+document.getElementById("exportCsvBtn").addEventListener("click", exportCsv);
+document.getElementById("importCsvBtn").addEventListener("click", () => {
+  document.getElementById("importCsvInput").click();
+});
+document.getElementById("importCsvInput").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const text = await file.text();
+  const { added } = importCsvText(text);
+  renderTranchesTable();
+  renderExportView();
+  document.getElementById("statusMsg").textContent = `已从CSV导入 ${added} 条记录`;
+  document.getElementById("statusMsg").className = "status ok";
+  e.target.value = "";
+});
+Object.values(BENCHMARK_CHECK_IDS).forEach(id => {
+  document.getElementById(id).addEventListener("change", () => renderDashboard());
+});
+document.querySelectorAll(".range-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".range-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    dashboardRangeBars = btn.dataset.range === "all" ? "all" : parseInt(btn.dataset.range);
+    renderDashboard();
+  });
+});
+
+document.getElementById("syncTokenInput").addEventListener("input", (e) => {
+  syncConfig.token = e.target.value.trim() || null;
+  saveSyncConfig(syncConfig);
+});
+document.getElementById("syncGistIdInput").addEventListener("input", (e) => {
+  syncConfig.gistId = e.target.value.trim() || null;
+  saveSyncConfig(syncConfig);
+  renderSyncUI();
+});
+document.getElementById("syncAutoPushToggle").addEventListener("change", (e) => {
+  syncConfig.autoPush = e.target.checked;
+  saveSyncConfig(syncConfig);
+});
+document.getElementById("syncPushBtn").addEventListener("click", pushToGist);
+let pullConfirmArmed = false;
+document.getElementById("syncPullBtn").addEventListener("click", () => {
+  const btn = document.getElementById("syncPullBtn");
+  if (!pullConfirmArmed) {
+    pullConfirmArmed = true;
+    btn.textContent = "确认覆盖本机记录?再点一次";
+    btn.style.background = "var(--red)";
+    setTimeout(() => {
+      pullConfirmArmed = false;
+      btn.textContent = "从云端拉取(会覆盖本机记录)";
+      btn.style.background = "";
+    }, 4000);
+    return;
+  }
+  pullConfirmArmed = false;
+  btn.textContent = "从云端拉取(会覆盖本机记录)";
+  btn.style.background = "";
+  pullFromGist();
+});
+
 applyAdvUIFromState();
+maybeAutoPullOnLoad();
 runPipeline();
 </script>
 </body>
