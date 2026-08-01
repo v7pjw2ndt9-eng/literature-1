@@ -107,6 +107,7 @@
       <div class="field"><label>账户总净值(元,现在的总资产)</label><input type="number" id="totalEquityInput" placeholder="例如 100000"></div>
       <div class="field"><label>底仓(不含杠杆仓位)市值(元,现在的市值)</label><input type="number" id="baselineValueInput" placeholder="例如 90000"></div>
     </div>
+    <div id="baselineWeightBox" style="display:none; margin-top:4px; padding:10px 12px; background:#10141a; border:1px solid var(--border); border-radius:8px; font-size:13px"></div>
     <div class="row-title" style="margin-top:18px">持仓中的杠杆仓位(每笔挂"成本价+5%"止盈单,每天开盘都要继续挂,直到成交;每天最多允许3笔同时止盈)</div>
     <table id="tranchesTable"><thead><tr><th>买入日期</th><th>股数</th><th>成本价</th><th>止盈目标价</th><th></th></tr></thead><tbody></tbody></table>
     <div class="inline-fields" style="margin-top:12px; grid-template-columns: 1fr 1fr 1fr auto;">
@@ -256,7 +257,21 @@
   22. 熔断只挡"双边挂单"这一种新开仓方式;"标准T"(开盘卖-1%买回)不受熔断影响,只要模型概率达到阈值,熔断期间照样正常执行①②卡片的标准T流程——回测显示这样比"熔断时全部停摆"多赚约2个百分点(2024-2026这段历史,不代表未来同样成立)。<br>
   19. "实际杠杆率""累计收益对比"这两个panel只用你实际记录的持仓/卖出算,180日超额收益那个panel则始终是"假设从未熔断"的参考信号(专门用来判断要不要熔断,不代表实际账户表现)——两者故意分开,别混着看。"实际杠杆率"用的是你当前填的"账户总净值"作为分母,反推整段历史,不是逐日重建的真实净值,如果净值较早期变化很大,早期的杠杆率数字会有偏差,越靠近今天越准。持仓表格、卖出记录表格里的"编辑"按钮可以直接改历史记录(比如实际成交价跟建议价不同时用来订正),改完立刻重新计算所有曲线,请自行核对改得对不对。<br>
   20. "账户总净值""底仓市值"这两个数字永远填"现在/最新"的实际值,不是某次历史时刻的值,也不需要跟同花顺之类其他软件里的历史记录对齐——这套0.9底仓+10%杠杆分笔的打法是从你开始用这个工具那天起才生效的新策略,不建议把之前用别的方式做的历史交易硬套进来;直接从今天的真实净值/底仓市值填起,持仓和卖出记录留空,后面跟着"今日操作清单"一笔笔记录即可,"实际组合"曲线自然会从第一笔记录开始往后画。<br>
-  21. 云同步用的 Gist 是"secret"不是真正私有——GitHub 不会公开列出它,但知道链接/ID的人不需要你的Token也能直接看到内容,请只用来存这类交易记录,不要存更敏感的信息。同步逻辑很简单:两个"推送/拉取"按钮都是全量覆盖(整份记录互相覆盖,不是逐条合并),没有做多设备同时改动的冲突合并;"自动推送"只会在你这台设备修改后自动把本机覆盖到云端,不会自动拉取覆盖本机,换新设备时需要手动点一次"从云端拉取"。Token 和 Gist ID 只存在浏览器本地,清缓存/换浏览器会丢,建议记在别处备份一份。
+  21. 云同步用的 Gist 是"secret"不是真正私有——GitHub 不会公开列出它,但知道链接/ID的人不需要你的Token也能直接看到内容,请只用来存这类交易记录,不要存更敏感的信息。同步逻辑很简单:两个"推送/拉取"按钮都是全量覆盖(整份记录互相覆盖,不是逐条合并),没有做多设备同时改动的冲突合并;"自动推送"只会在你这台设备修改后自动把本机覆盖到云端,不会自动拉取覆盖本机,换新设备时需要手动点一次"从云端拉取"。Token 和 Gist ID 只存在浏览器本地,清缓存/换浏览器会丢,建议记在别处备份一份。<br>
+  <br>
+  <b>关于"熔断后撞上下跌"这件事的完整调研结论(2026-08,做了一轮独立审计):</b><br>
+  23. <b>修掉了一个真bug。</b>1.5倍杠杆上限的检查原来用"当天收盘价"给已有仓位估值,来决定当天开盘该不该下单——这是下单时拿不到的信息。修正为用当天开盘价后,离线回测的历史总收益下降约30个百分点,也就是说<b>之前所有历史收益数字都被高估了约30个百分点</b>。这个bug在网页的熔断信号计算里也有,已一并修正。以后请以修正后的数字为准。<br>
+  24. <b>整段历史里只有1次"熔断解除后撞上下跌"。</b>2026-03-12解除后杠杆从0.51倍升到1.78倍,股价随后4个月跌约28%,回吐约16pp超额收益。而另外6次解除之后,超额收益全都是继续上涨的(+5.0到+29.1pp)。所以这是七分之一的事件,任何针对它的改动本质上都是<b>照着1个样本拟合</b>。<br>
+  25. <b>测过并否决了"解除需连续N天确认"。</b>它看起来很漂亮(收益从138%涨到210%以上),但独立审计用一个"完全不看信号、只是硬等N天"的傻控制组做对比,发现效果一样好——说明它不是在过滤噪声,只是在"延迟再加杠杆",效果全看股价那段时间恰好走到哪里。把2026年从数据里去掉后,它在5个时段里有4个都亏钱,而且比现状更差。已放弃。<br>
+  26. <b>测过并否决了"缩短熔断窗口"(如30天/8%)、"收盘价低于均线不加仓"、"回撤超过X%不加仓"。</b>前者在(窗口×阈值)空间里全是孤立尖峰、邻居值差异巨大,属于日期运气;后两者按风险调整后依然更差(Calmar/Sharpe/Sortino全面低于现状),而且对最大回撤几乎没用——因为回撤主要来自0.9底仓本身,这些过滤器碰不到它。<br>
+  27. <b>阈值0.75决定保持不变,你的直觉方向对但位置不对。</b>模型概率的"校准"其实是准的(各年触发率和当年真实"跌破1%"的发生频率相关性0.977——2023年只触发0.4%不是阈值失灵,是那年真的没机会);弱的是"排序能力"(逐年AUC只有0.48-0.62,2021年甚至低于抛硬币)。阈值只能改变"在哪里切",无法改变"哪些天排在前面",所以换成分位数阈值/重新校准都测过,全都更差。<br>
+  28. <b>唯一站得住的方向是"限制总敞口",而且它是个风险旋钮不是修复。</b>限制"最多同时持有几笔杠杆仓位"(现在无上限,历史上最多堆到12笔、2026那次堆了11笔卡死)呈现完美单调的取舍:上限8笔→收益131.7%、超额回吐-64.2pp;上限6笔→收益117.1%、回吐-46.6pp;不限制(现状)→回吐最大。去掉2026年重测,它<b>依然</b>能把回吐从-35.9pp降到-19.0pp,说明买到的保护是真的(这点和第25条那个被否决的想法关键区别在此)。但它在除2026年外的每一年都在亏钱(每年-0.7到-18.6pp),是<b>要付保费的保险</b>。目前工具里没有加这个上限,如果你想要,告诉我把上限设成几笔。<br>
+  30. <b>发现并修掉了一个更大的记账问题:"0.9底仓"如果不维护会逐年被稀释。</b>底仓是固定股数,市值只跟着股价走;而做T赚的钱全进现金池、从不投回股票。七年下来底仓股数只减少0.9%(几乎没卖过),但净值涨了188%,于是底仓占比被稀释:84%→80%→66%→62%→57%→50%→45%,<b>策略越赚钱,底仓占比掉得越快</b>。到2026年停摆期,账户实际有55%是闲置现金、杠杆率掉到0.43,"0.9底仓"完全名不副实。这不是卖出造成的,是稀释造成的。<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;修法很简单,不需要任何策略参数:账户设置里现在会显示<b>底仓占净值的实际比例,以及要买/卖多少钱才能回到90%</b>(±3%以内提示不用动)。回测也已改成同样口径(按±3%维护),这样回测才对应"一个真的会看账户的人",而不是"七年没人管过的账户"。<br>
+  &nbsp;&nbsp;&nbsp;&nbsp;<b>这也让之前那些收益数字要重新解读</b>:早先"不维护底仓"的版本回测收益更高(188%),但那部分优势有很大一块来自"账户恰好在2026年崩盘前只有45%在股票里"这种歪打正着,不可复制。按维护口径重跑,<b>当前正式回测是总收益152.8%、超额+107.3pp</b>(满仓持有45.5%)——这才是该参考的数字。<br>
+  31. <b>那个"解除需股价回到停摆时水平"的价格门槛,加上之后又去掉了。</b>它在"底仓不维护"的前提下确实有用(能拦住2026年3月那次过早解除)。但改成按90%维护底仓后,参考曲线变了、信号本身就推迟到2026-06-15才解除,那时股价已经回到接近停摆时的水平——门槛在10%容差下<b>在整段2019-2026历史里一次都没起过作用</b>,结果与"完全没门槛"逐日完全相同。所以去掉了,不留从不生效的复杂逻辑。<b>现在的解除条件就是单一条件:180日滚动超额收益 ≤0%。</b><br>
+  32. <b>软顶为什么是1.5:数据自己指出这里是拐点。</b>提高0.1软顶能多赚多少、要多担多少超额回吐的风险:1.4→1.5 是"+36.1pp收益 / +8.3pp风险"(性价比4.34,很划算);1.5→1.6 是"+29.1pp收益 / +31.7pp风险"(性价比0.92,基本1:1,不划算)。另外软顶1.6还有个隐性代价:杠杆越高越容易跑赢基准、越容易撞上20%停摆线,熔断次数从3次翻到6次、停摆时间占比从13%涨到21%,其中2025-11到2026-06被冻结整整7个月。<b>还有个反直觉的点:降软顶不能改善最大回撤</b>(1.4的回撤-50.8%比1.5的-45.2%更差),因为软顶越低越接近单纯满仓持有(满仓本身回撤-53%),做T利润的缓冲垫更薄。<br>
+  29. <b>所有回测数字都是单一路径、单一标的、只算固定手续费不算滑点</b>,而且walk-forward模型的训练数据窗口一变(比如从2024年起 vs 从2019年起),熔断解除的具体日期能漂移2个多月——请把"解除发生在哪一天"当作基本随机的,不要依赖它的精确时点。
 </div>
 
 <script>
@@ -746,8 +761,45 @@ function renderExportView() {
   }
   lines.push(`卖出记录 (${advState.sellLog.length}笔,详见"卖出记录"卡片)`);
   el.textContent = lines.join("\n");
+  renderBaselineWeight();
   renderSellLogTable();
   renderDashboard();
+}
+
+// The "0.9 baseline" is only meaningful if it is actually maintained. Left alone it drifts: profits
+// from the daily 10% operations land in cash and, if never redeployed, the core holding's share of the
+// account keeps shrinking (in a 7-year backtest that assumed nobody ever topped it up, 90% -> 45%).
+// In real use you type in today's real numbers, so this just says plainly where you stand and how much
+// to buy/sell to get the core back to its target -- no strategy parameter, just arithmetic.
+function renderBaselineWeight() {
+  const box = document.getElementById("baselineWeightBox");
+  if (!box) return;
+  const eq = parseFloat(document.getElementById("totalEquityInput").value);
+  const bv = parseFloat(document.getElementById("baselineValueInput").value);
+  if (!eq || !bv || eq <= 0) { box.style.display = "none"; return; }
+  box.style.display = "block";
+  const TARGET = 0.90;
+  const w = bv / eq;
+  const targetVal = TARGET * eq;
+  const gap = targetVal - bv;
+  const trancheVal = advState.tranches.reduce((s,tr) => s + tr.shares*(currentStockPrevClose || tr.cost), 0);
+  const totalExposure = bv + trancheVal;
+  const lev = totalExposure / eq;
+  const near = Math.abs(w - TARGET) <= 0.03;
+  const color = near ? "var(--green)" : (w < TARGET ? "var(--amber)" : "var(--blue)");
+  const action = near
+    ? "已在目标附近(±3%),不用动"
+    : (gap > 0
+        ? `低于目标,可考虑<b>买入约 ${Math.round(gap).toLocaleString()} 元</b>底仓补回90%`
+        : `高于目标,可考虑<b>卖出约 ${Math.round(-gap).toLocaleString()} 元</b>底仓降回90%`);
+  box.innerHTML = `
+    <span style="color:${color}; font-weight:600">底仓占净值 ${(w*100).toFixed(1)}%</span>
+    <span style="color:var(--muted)">(目标 90%,即 ${Math.round(targetVal).toLocaleString()} 元)</span> — ${action}<br>
+    <span style="color:var(--muted); font-size:12px">
+      当前总敞口 ${Math.round(totalExposure).toLocaleString()} 元(底仓 ${Math.round(bv).toLocaleString()} + 持仓中杠杆仓位 ${Math.round(trancheVal).toLocaleString()}),
+      实际杠杆率 <b style="color:var(--text)">${lev.toFixed(2)}倍</b>。
+      做T赚的钱如果一直留在现金里不投回股票,这个占比会逐年下降,底仓就会名不副实——所以每次净值变化后顺手看一眼这里。
+    </span>`;
 }
 
 let editingSellIdx = null;
@@ -956,8 +1008,12 @@ function runCounterfactualSimulation(stockBars, futuresBars, model, mu, sd, warm
       tranches = stillOpen;
       const buyTrigger = o*(1-B);
       const buyFires = l <= buyTrigger;
-      const openVal = tranches.reduce((s,tr)=>s+tr.shares*c, 0);
-      const curExposure = baselineShares*c + openVal;
+      // LOOKAHEAD FIX: value existing exposure at the day's OPEN, not its close. The bracket orders
+      // are placed at/just after the 9:25 open, so open is known at decision time but close is not.
+      // (Using close here overstated how often the 1.5x cap allowed a buy, and inflated the
+      // historical curve by roughly 30 percentage points of total return in the offline backtest.)
+      const openVal = tranches.reduce((s,tr)=>s+tr.shares*o, 0);
+      const curExposure = baselineShares*o + openVal;
       if (buyFires) {
         const newShares = (SLICE_FRAC*eqPrev)/buyTrigger;
         if ((curExposure+newShares*buyTrigger)/eqPrev <= LEV_CAP) {
@@ -1143,6 +1199,19 @@ function computeSignalSeries(stockBars, cf, windowDays) {
   return windowDays ? series.slice(-windowDays) : series;
 }
 
+// The 180-day rolling excess signal can fall back to 0% for two very different reasons:
+//   (a) the strategy genuinely stopped outperforming because conditions normalized -- safe to resume
+//   (b) the original run-up simply ROLLED OFF the far end of the 180-day window, so the signal
+//       "expired" while nothing actually normalized
+// In case (b) the stock can be far HIGHER than it was when the stop began, which is the worst possible
+// moment to start re-levering. RESUME_PRICE_GATE therefore additionally requires the price to have
+// come back to (or below) its level on the stop date before resuming. Backtested 2019-2026: this rule
+// never triggered in the 2021 or 2022 episodes (price was already lower at both resumes), so it cost
+// exactly zero there, and in the one episode where it did bind (2026) it moved the resume from
+// 03-12 to 06-30 and cut the peak-to-trough giveback of accumulated excess return from -80pp to -36pp.
+const RESUME_PRICE_GATE = false;  // turned off: became redundant once the 0.9 core is maintained (see caveat 30)
+const RESUME_MAX_STOP_DAYS = 250;  // emergency valve only; never actually bound in 2019-2026 history
+
 function computeBreakerStatus(stockBars, cf) {
   const n = stockBars.length;
   const dates = stockBars.map(r => new Date(r.date));
@@ -1150,6 +1219,8 @@ function computeBreakerStatus(stockBars, cf) {
   let stopped = false;
   let lastTransition = null;
   let lastSignal = null;
+  let stopIdx = null, pxAtStop = null;
+  let gateBlocking = false;   // signal says resume, but the price gate is holding us back
   const transitions = [];
   for (let t=1; t<n; t++) {
     let ref = null;
@@ -1159,10 +1230,24 @@ function computeBreakerStatus(stockBars, cf) {
     if (ref === null) continue;
     const sig = (cf.equity[t]/cf.equity[ref]-1) - (cf.bench[t]/cf.bench[ref]-1);
     lastSignal = sig;
-    if (!stopped && sig >= STOP_THRESH) { stopped = true; lastTransition = {date: stockBars[t].date, type:"STOP"}; transitions.push(lastTransition); }
-    else if (stopped && sig <= RESUME_THRESH) { stopped = false; lastTransition = {date: stockBars[t].date, type:"RESUME"}; transitions.push(lastTransition); }
+    if (!stopped && sig >= STOP_THRESH) {
+      stopped = true; stopIdx = t; pxAtStop = stockBars[t].close; gateBlocking = false;
+      lastTransition = {date: stockBars[t].date, type:"STOP"}; transitions.push(lastTransition);
+    } else if (stopped && sig <= RESUME_THRESH) {
+      let gateOk = true;
+      if (RESUME_PRICE_GATE && pxAtStop !== null) {
+        gateOk = stockBars[t].close <= pxAtStop;
+        if (!gateOk && stopIdx !== null && (t - stopIdx) >= RESUME_MAX_STOP_DAYS) gateOk = true;
+      }
+      gateBlocking = !gateOk;
+      if (gateOk) {
+        stopped = false; stopIdx = null; pxAtStop = null; gateBlocking = false;
+        lastTransition = {date: stockBars[t].date, type:"RESUME"}; transitions.push(lastTransition);
+      }
+    }
   }
-  return { stopped, trailingExcess: lastSignal, lastTransition, transitions };
+  return { stopped, trailingExcess: lastSignal, lastTransition, transitions,
+            gateBlocking, pxAtStop, stopDate: stopIdx !== null ? stockBars[stopIdx].date : null };
 }
 
 function recomputeBreakerStatus() {
@@ -1486,11 +1571,26 @@ function renderBreakerStatus() {
   const badge = b.stopped
     ? `<span class="badge on">熔断中 — 不建议新开杠杆仓位</span>`
     : `<span class="badge off">正常 — 可以新开杠杆仓位(仍受1.5倍上限约束)</span>`;
+  // RESUME_PRICE_GATE is currently off, so the resume rule is the single signal condition again.
+  // If it is ever switched back on, this line explains why a resume is being held back.
+  let gateLine = "";
+  if (RESUME_PRICE_GATE && b.stopped && b.pxAtStop != null) {
+    const px = currentStockPrevClose || (cachedForAdv && cachedForAdv.stockBars.length
+      ? cachedForAdv.stockBars[cachedForAdv.stockBars.length-1].close : null);
+    if (px != null && b.gateBlocking) {
+      gateLine = `<div style="color:var(--amber); margin-top:8px; font-size:13px">⚠️ 超额收益已回落到解除线,但股价尚未回到停摆时的水平,所以继续停摆:
+        停摆日(${b.stopDate})收盘 <b>${b.pxAtStop.toFixed(2)}</b>,现价 <b>${px.toFixed(2)}</b>
+        (还需再跌 ${((px/b.pxAtStop-1)*100).toFixed(1)}%)。</div>`;
+    }
+  }
   el.innerHTML = `
     ${badge}<br><br>
     "假设从未熔断"的180自然日滚动超额收益: <b>${(b.trailingExcess*100).toFixed(2)}%</b>
     (触发停摆线20%,解除线0%)<br>
-    最近一次状态切换: ${b.lastTransition ? `${b.lastTransition.date} (${b.lastTransition.type==='STOP'?'停摆':'解除'})` : "无"}<br>
+    解除条件: <b>这个滚动超额收益回落到 ≤0%</b> 即解除,没有附加条件(曾试过再加"股价须回到停摆时水平",
+    但在底仓按90%维护的前提下它已无实际作用,见说明第30条)<br>
+    最近一次状态切换: ${b.lastTransition ? `${b.lastTransition.date} (${b.lastTransition.type==='STOP'?'停摆':'解除'})` : "无"}
+    ${gateLine}
     <span style="color:var(--muted); font-size:12px">注:此信号用固定模型回溯全部历史算出,不是逐日walk-forward重训练,仅作为熔断状态的内部参考,不代表历史预测已验证。</span>
   `;
 }
