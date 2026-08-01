@@ -178,6 +178,9 @@
     <button class="range-btn active" data-range="180">近180天</button>
     <button class="range-btn" data-range="250">近1年</button>
     <button class="range-btn" data-range="all">全部</button>
+    <span style="width:1px; height:18px; background:var(--border); margin:0 2px"></span>
+    <span style="font-size:12px; color:var(--muted)">自定义起点:</span>
+    <input type="date" id="dashboardCustomStart" style="width:150px; padding:5px 8px; font-size:12px">
   </div>
   <div class="inline-fields" style="margin-bottom:10px; grid-template-columns:repeat(auto-fit,minmax(90px,auto)); gap:12px;">
     <label class="toggle-row" style="gap:6px"><input type="checkbox" id="benchSz50" style="width:16px;height:16px"><span style="font-size:13px">上证50</span></label>
@@ -501,7 +504,8 @@ let cachedForAdv = null;       // {stockBars, futuresBars, model, mu, sd, warmup
                                 // the breaker signal can be recomputed when sliders change without refetching
 let lastCounterfactual = null; // {equity, bench, leverage} from the most recent runCounterfactualSimulation call,
                                 // reused by the dashboard chart so it isn't recomputed a second time
-let dashboardRangeBars = 180;  // how many trading bars of history the dashboard chart currently shows ("all" = everything)
+let dashboardRangeBars = 180;  // how many trading bars of history the dashboard chart currently shows ("all" = everything, "custom" = use dashboardCustomStart instead)
+let dashboardCustomStart = null;  // "YYYY-MM-DD" when dashboardRangeBars === "custom", else unused
 const MAX_TRANCHE_SELLS_PER_DAY = 3; // cap on how many open tranches may close in a single day, so a rally right
                                       // after a circuit-breaker stop doesn't dump many positions all at once
 
@@ -1233,8 +1237,13 @@ async function renderDashboard() {
   const n = stockBars.length;
 
   const allDates = stockBars.map(r => r.date);
-  const rangeN = dashboardRangeBars === "all" ? n : Math.min(n, dashboardRangeBars);
-  const dates = allDates.slice(n - rangeN);
+  let dates;
+  if (dashboardRangeBars === "custom" && dashboardCustomStart) {
+    dates = allDates.filter(d => d >= dashboardCustomStart);
+  } else {
+    const rangeN = dashboardRangeBars === "all" ? n : Math.min(n, dashboardRangeBars);
+    dates = allDates.slice(n - rangeN);
+  }
 
   const priceMap = new Map(stockBars.map(r => [r.date, r.close]));
 
@@ -1768,9 +1777,17 @@ document.querySelectorAll(".range-btn").forEach(btn => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".range-btn").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
+    document.getElementById("dashboardCustomStart").value = "";
     dashboardRangeBars = btn.dataset.range === "all" ? "all" : parseInt(btn.dataset.range);
     renderDashboard();
   });
+});
+document.getElementById("dashboardCustomStart").addEventListener("change", (e) => {
+  if (!e.target.value) return;
+  document.querySelectorAll(".range-btn").forEach(b => b.classList.remove("active"));
+  dashboardRangeBars = "custom";
+  dashboardCustomStart = e.target.value;
+  renderDashboard();
 });
 
 document.getElementById("syncTokenInput").addEventListener("input", (e) => {
