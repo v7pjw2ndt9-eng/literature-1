@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>宝丰能源(600989) 做T信号</title>
+<style>
+  :root {
+    --bg: #0f1216; --card: #171b21; --border: #2a2f38; --text: #e6e8eb; --muted: #8b93a1;
+    --blue: #4f8cff; --green: #2ecc71; --red: #ff5c5c; --amber: #f5a623;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    max-width: 900px; margin: 0 auto;
+  }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px; margin-bottom: 16px;
+  }
+  .decision {
+    text-align: center; padding: 28px 20px;
+  }
+  .decision .label { font-size: 14px; color: var(--muted); margin-bottom: 8px; }
+  .decision .verdict { font-size: 28px; font-weight: 700; margin-bottom: 6px; }
+  .decision .verdict.execute { color: var(--green); }
+  .decision .verdict.hold { color: var(--amber); }
+  .decision .prob { font-size: 14px; color: var(--muted); }
+  .decision .prob b { color: var(--text); font-size: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+  .feat { background: #10141a; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .feat .k { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .feat .v { font-size: 15px; font-weight: 600; }
+  .feat .v.pos { color: var(--green); }
+  .feat .v.neg { color: var(--red); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  .row-title { font-size: 13px; color: var(--muted); margin-bottom: 10px; font-weight: 600; }
+  .status { font-size: 13px; color: var(--muted); }
+  .status.err { color: var(--red); }
+  .status.ok { color: var(--green); }
+  #threshold-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+  #threshold-row input[type=range] { flex: 1; }
+  #threshold-val { font-weight: 600; min-width: 42px; text-align: right; }
+  button {
+    background: var(--blue); color: white; border: none; border-radius: 8px;
+    padding: 10px 18px; font-size: 14px; cursor: pointer; font-weight: 600;
+  }
+  button:hover { opacity: 0.9; }
+  .caveat { font-size: 12px; color: var(--muted); line-height: 1.6; }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border);
+    border-top-color: var(--blue); border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<h1>宝丰能源(600989) 隔夜信号 / 做T判断</h1>
+<div class="sub">模型: 逻辑回归 · 目标: 预测"今日盘中低点是否会跌破开盘价-1%" · 每次打开页面用截至昨日的全部历史数据重新训练(walk-forward)</div>
+
+<div class="card decision" id="decisionCard">
+  <div class="label"><span class="spinner"></span>正在拉取行情并训练模型…</div>
+</div>
+
+<div class="card" id="thresholdCard" style="display:none">
+  <div class="row-title">判定阈值(默认0.75,由历史验证集选出)</div>
+  <div id="threshold-row">
+    <input type="range" id="thresholdSlider" min="0.3" max="0.95" step="0.01" value="0.75">
+    <span id="threshold-val">0.75</span>
+  </div>
+</div>
+
+<div class="card" id="featCard" style="display:none">
+  <div class="row-title">当前特征值</div>
+  <div class="grid" id="featGrid"></div>
+</div>
+
+<div class="card" id="dataCard" style="display:none">
+  <div class="row-title">数据来源与时间戳</div>
+  <table id="dataTable"></table>
+</div>
+
+<div class="card">
+  <button id="refreshBtn">重新拉取 & 刷新</button>
+  <span class="status" id="statusMsg" style="margin-left:12px;"></span>
+</div>
+
+<div class="card caveat">
+  <b>使用说明与局限:</b><br>
+  1. 判定基于2024-2026年历史回测,样本外验证显示对"择时做T"有统计上可辨识但幅度有限的优势,不保证未来持续有效。<br>
+  2. 商品隔夜特征用的是新浪实时行情的"今开"字段对比上一交易日收盘,期货数据可能有数秒到数分钟延迟。<br>
+  3. 阈值0.75是在一段历史验证集上选出的,不是理论最优值,可用上方滑块自行调整观察。<br>
+  4. 本页面只做信号参考,不构成投资建议,实盘请自行判断风险。<br>
+  5. 如果页面长时间卡在"正在拉取"或报错,通常是新浪接口临时限流或网络问题,过几分钟重试即可。
+</div>
+
+<script>
+const HEADERS_NOTE = "";
+const CACHE = { stock: null, futures: {}, realtime: {} };
+
+function jsonpScript(url, globalVar, timeoutMs=12000) {
+  return new Promise((resolve, reject) => {
+    if (window[globalVar] !== undefined) delete window[globalVar];
+    const script = document.createElement("script");
+    script.src = url;
+    let done = false;
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      cleanup();
+      reject(new Error("超时: " + url));
+    }, timeoutMs);
+    function cleanup() {
+      clearTimeout(timer);
+      script.remove();
+    }
+    script.onload = () => {
+      if (done) return;
+      done = true;
+      cleanup();
+      if (window[globalVar] === undefined) {
+        reject(new Error("未获取到数据: " + globalVar));
+      } else {
+        resolve(window[globalVar]);
+      }
+    };
+    script.onerror = () => {
+      if (done) return;
+      done = true;
+      cleanup();
+      reject(new Error("加载失败: " + url));
+    };
+    document.body.appendChild(script);
+  });
+}
+
+async function fetchStockHistory() {
+  const url = "https://money.finance.sina.com.cn/quotes_service/api/jsonp.php/var%20_BFNY_HIST=/CN_MarketData.getKLineData?symbol=sh600989&scale=240&ma=no&datalen=700";
+  const data = await jsonpScript(url, "_BFNY_HIST");
+  return data.map(r => ({ date: r.day, open: +r.open, high: +r.high, low: +r.low, close: +r.close, volume: +r.volume }))
+             .filter(r => r.date >= "2024-01-01");
+}
+
+async function fetchFuturesHistory(symbol, varName) {
+  const url = `https://stock2.finance.sina.com.cn/futures/api/jsonp.php/var%20${varName}=/InnerFuturesNewService.getDailyKLine?symbol=${symbol}`;
+  const data = await jsonpScript(url, varName);
+  return data.map(r => ({ date: r.d, open: +r.o, high: +r.h, low: +r.l, close: +r.c, volume: +r.v }))
+             .filter(r => r.date >= "2024-01-01");
+}
+
+// Sina's hq.sinajs.cn checks Referer and returns 403 for any non-sina.com.cn page, so it cannot be
+// used from a standalone page. Eastmoney's push2delay quote endpoint has no such restriction and even
+// echoes back a permissive Access-Control-Allow-Origin header, so we use it here for live "today open".
+const EM_SECIDS = { ma: "115.MAM", ta: "115.TAM", sc: "142.scm", jm: "114.jmm", pp: "114.ppm", bfny: "1.600989" };
+
+async function fetchRealtimeQuoteEM(secid) {
+  const url = `https://push2delay.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f43,f46,f58,f60&fltt=2&_t=${Date.now()}`;
+  const resp = await fetch(url, { cache: "no-store" });
+  if (!resp.ok) throw new Error(`实时行情请求失败 (${secid}): HTTP ${resp.status}`);
+  const json = await resp.json();
+  if (!json.data) throw new Error(`实时行情无数据 (${secid})`);
+  return json.data; // {f43: current, f46: today_open, f58: name, f60: prev_close}
+}
+
+async function fetchRealtimeQuotes() {
+  const keys = Object.keys(EM_SECIDS);
+  const results = await Promise.all(keys.map(k => fetchRealtimeQuoteEM(EM_SECIDS[k])));
+  const out = {};
+  keys.forEach((k, i) => { out[k] = results[i]; });
+  return out; // out.ma.f46 = methanol today open, out.bfny.f60 = stock prev close, etc.
+}
+
+function mean(arr) { return arr.reduce((a,b)=>a+b,0) / arr.length; }
+function std(arr) { const m = mean(arr); return Math.sqrt(mean(arr.map(x => (x-m)**2))); }
+
+// ---- feature engineering, mirrors the Python reference (full_model_2y.py) exactly ----
+// bars: {date, open, high, low, close, volume} sorted ascending. Returns feature vector for index t
+// using only data strictly before or at t-1 (own_*) and index t's "open" (commodity gap only).
+function computeFeatureRow(t, stockBars, futuresBars, commodityOpenOverride) {
+  const s = stockBars;
+  const f = {}; // per-commodity gap using bar[t].open vs bar[t-1].close, unless override given for "today"
+  const names = ["methanol","pta","crude","coking_coal","pp"];
+  const keys = ["ma","ta","sc","jm","pp"];
+  for (let i=0;i<names.length;i++) {
+    const bars = futuresBars[keys[i]];
+    const prevClose = bars[t-1].close;
+    const todayOpen = commodityOpenOverride ? commodityOpenOverride[keys[i]] : bars[t].open;
+    f[names[i]] = todayOpen/prevClose - 1.0;
+  }
+  const ownRangeLag1 = (s[t-1].high - s[t-1].low) / s[t-1].open;
+  const ownMom1 = t>=2 ? (s[t-1].close/s[t-2].close - 1.0) : 0;
+  let volRatio = 0;
+  if (t>=6) {
+    const win = s.slice(t-6,t-1).map(r=>r.volume);
+    const va = mean(win);
+    volRatio = va>0 ? s[t-1].volume/va : 0;
+  }
+  let ma5=null, ma20=null, devMa5=0, devMa20=0, maCross=0;
+  if (t>=5) ma5 = mean(s.slice(t-5,t).map(r=>r.close));
+  if (t>=20) ma20 = mean(s.slice(t-20,t).map(r=>r.close));
+  if (t>=21) {
+    devMa5 = s[t-1].close/ma5 - 1.0;
+    devMa20 = s[t-1].close/ma20 - 1.0;
+    maCross = ma5/ma20 - 1.0;
+  }
+  return [
+    Math.abs(f.methanol), Math.abs(f.pta), Math.abs(f.crude), Math.abs(f.coking_coal), Math.abs(f.pp),
+    f.methanol, f.pta, f.crude,
+    ownRangeLag1, ownMom1, volRatio, devMa5, devMa20, maCross
+  ];
+}
+const FEATURE_NAMES = [
+  "abs_gap_methanol","abs_gap_pta","abs_gap_crude","abs_gap_coking_coal","abs_gap_pp",
+  "gap_methanol","gap_pta","gap_crude",
+  "own_range_lag1","own_mom1","own_vol_ratio_lag1","own_dev_ma5","own_dev_ma20","own_ma_cross"
+];
+
+function trainLogisticRegression(X, y, {lr=0.5, iters=4000, l2=1.0} = {}) {
+  const n = X.length, d = X[0].length;
+  let w = new Array(d).fill(0), b = 0;
+  for (let it=0; it<iters; it++) {
+    const gw = new Array(d).fill(0);
+    let gb = 0;
+    for (let i=0;i<n;i++) {
+      let z = b;
+      for (let j=0;j<d;j++) z += w[j]*X[i][j];
+      const p = 1/(1+Math.exp(-z));
+      const err = p - y[i];
+      for (let j=0;j<d;j++) gw[j] += err*X[i][j];
+      gb += err;
+    }
+    for (let j=0;j<d;j++) w[j] -= lr*(gw[j]/n + l2*w[j]/n);
+    b -= lr*(gb/n);
+  }
+  return { w, b };
+}
+
+function standardize(X) {
+  const d = X[0].length;
+  const mu = new Array(d), sd = new Array(d);
+  for (let j=0;j<d;j++) {
+    const col = X.map(r=>r[j]);
+    mu[j] = mean(col);
+    sd[j] = std(col) || 1.0;
+  }
+  const Xz = X.map(row => row.map((v,j) => (v-mu[j])/sd[j]));
+  return { Xz, mu, sd };
+}
+
+let currentProb = null;
+let currentFeatVals = null;
+
+async function runPipeline() {
+  const statusEl = document.getElementById("statusMsg");
+  const decisionCard = document.getElementById("decisionCard");
+  try {
+    statusEl.textContent = "拉取股票历史数据…"; statusEl.className = "status";
+    const stockBars = await fetchStockHistory();
+
+    statusEl.textContent = "拉取商品期货历史数据…";
+    const futuresBars = {};
+    const futSpecs = [["MA0","_MA_HIST"],["TA0","_TA_HIST"],["SC0","_SC_HIST"],["JM0","_JM_HIST"],["PP0","_PP_HIST"]];
+    const keys = ["ma","ta","sc","jm","pp"];
+    for (let i=0;i<futSpecs.length;i++) {
+      futuresBars[keys[i]] = await fetchFuturesHistory(futSpecs[i][0], futSpecs[i][1]);
+    }
+
+    // align all series on stock's trading dates (commodities share the same calendar; drop any stray extra dates)
+    const stockDates = new Set(stockBars.map(r=>r.date));
+    for (const k of keys) futuresBars[k] = futuresBars[k].filter(r => stockDates.has(r.date));
+    const commonLen = Math.min(stockBars.length, ...keys.map(k=>futuresBars[k].length));
+    const nAll = commonLen;
+
+    statusEl.textContent = "拉取实时行情(今开)…";
+    const rt = await fetchRealtimeQuotes();
+    const rtOpen = {
+      ma: rt.ma.f46, ta: rt.ta.f46, sc: rt.sc.f46, jm: rt.jm.f46, pp: rt.pp.f46,
+    };
+    const rtFetchedAt = new Date().toLocaleString("zh-CN");
+    const stockRtOpen = rt.bfny.f46;
+    const stockRtPrevClose = rt.bfny.f60;
+    const stockRtCurrent = rt.bfny.f43;
+
+    statusEl.textContent = "训练模型(walk-forward, 用截至昨日的全部数据)…";
+    const WARMUP = 21;
+    const touch = stockBars.map((r,idx) => (idx>0 && stockBars[idx].low <= stockBars[idx].open*0.99) ? 1 : 0);
+    const X = [], y = [];
+    for (let t=WARMUP; t<nAll; t++) {
+      X.push(computeFeatureRow(t, stockBars, futuresBars, null));
+      y.push(touch[t]);
+    }
+    const { Xz, mu, sd } = standardize(X);
+    const model = trainLogisticRegression(Xz, y, { lr:0.5, iters:4000, l2:1.0 });
+
+    // today's live feature row: own_* use bars[nAll-1] as "yesterday", commodity gap uses real-time open
+    const liveRaw = computeFeatureRow(nAll, stockBars, futuresBars, rtOpen);
+    const liveZ = liveRaw.map((v,j) => (v-mu[j])/sd[j]);
+    let z = model.b;
+    for (let j=0;j<liveZ.length;j++) z += model.w[j]*liveZ[j];
+    const prob = 1/(1+Math.exp(-z));
+    currentProb = prob;
+    currentFeatVals = liveRaw;
+
+    // render feature card
+    const featGrid = document.getElementById("featGrid");
+    featGrid.innerHTML = "";
+    FEATURE_NAMES.forEach((name, j) => {
+      const v = liveRaw[j];
+      const div = document.createElement("div");
+      div.className = "feat";
+      div.innerHTML = `<div class="k">${name}</div><div class="v ${v>=0?'pos':'neg'}">${(v*100).toFixed(2)}%</div>`;
+      featGrid.appendChild(div);
+    });
+    document.getElementById("featCard").style.display = "block";
+
+    // render data source card
+    const lastStock = stockBars[nAll-1];
+    const dataTable = document.getElementById("dataTable");
+    dataTable.innerHTML = `
+      <tr><th>数据</th><th>值</th></tr>
+      <tr><td>股票最近收盘日(历史,来自新浪)</td><td>${lastStock.date} 收盘 ${lastStock.close}</td></tr>
+      <tr><td>股票实时今开/昨收/现价(来自东方财富)</td><td>${stockRtOpen} / ${stockRtPrevClose} / ${stockRtCurrent}</td></tr>
+      <tr><td>甲醇(MA)今开 / 历史昨收</td><td>${rtOpen.ma} / ${futuresBars.ma[nAll-1].close}</td></tr>
+      <tr><td>PTA(TA)今开 / 历史昨收</td><td>${rtOpen.ta} / ${futuresBars.ta[nAll-1].close}</td></tr>
+      <tr><td>原油SC今开 / 历史昨收</td><td>${rtOpen.sc} / ${futuresBars.sc[nAll-1].close}</td></tr>
+      <tr><td>焦煤(JM)今开 / 历史昨收</td><td>${rtOpen.jm} / ${futuresBars.jm[nAll-1].close}</td></tr>
+      <tr><td>聚丙烯(PP)今开 / 历史昨收</td><td>${rtOpen.pp} / ${futuresBars.pp[nAll-1].close}</td></tr>
+      <tr><td>训练样本量</td><td>${X.length} 天 (${stockBars[WARMUP].date} ~ ${lastStock.date})</td></tr>
+      <tr><td>实时行情拉取时间</td><td>${rtFetchedAt}</td></tr>
+    `;
+    document.getElementById("dataCard").style.display = "block";
+    document.getElementById("thresholdCard").style.display = "block";
+
+    renderDecision();
+    statusEl.textContent = "完成"; statusEl.className = "status ok";
+  } catch (e) {
+    decisionCard.innerHTML = `<div class="label" style="color:var(--red)">拉取或计算失败</div><div class="verdict" style="font-size:16px">${e.message}</div>`;
+    statusEl.textContent = "出错: " + e.message; statusEl.className = "status err";
+    console.error(e);
+  }
+}
+
+function renderDecision() {
+  if (currentProb === null) return;
+  const thresh = parseFloat(document.getElementById("thresholdSlider").value);
+  const decisionCard = document.getElementById("decisionCard");
+  const execute = currentProb >= thresh;
+  decisionCard.innerHTML = `
+    <div class="label">今日触及开盘价-1%的预测概率</div>
+    <div class="verdict ${execute?'execute':'hold'}">${execute ? "✓ 可以做T" : "✗ 建议持有,不做T"}</div>
+    <div class="prob">预测概率 <b>${(currentProb*100).toFixed(1)}%</b> ${execute?'≥':'<'} 阈值 ${(thresh*100).toFixed(0)}%</div>
+  `;
+}
+
+document.getElementById("thresholdSlider").addEventListener("input", (e) => {
+  document.getElementById("threshold-val").textContent = parseFloat(e.target.value).toFixed(2);
+  renderDecision();
+});
+document.getElementById("refreshBtn").addEventListener("click", runPipeline);
+
+runPipeline();
+</script>
+</body>
+</html>
