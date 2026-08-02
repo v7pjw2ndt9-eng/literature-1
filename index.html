@@ -96,7 +96,7 @@
   <label class="toggle-row">
     <input type="checkbox" id="advancedModeToggle">
     <span>
-      <span class="toggle-label">高级模式:0.9底仓 + 每日10%杠杆操作(软顶1.5倍 + 180日20%熔断仅停双边挂单 + 每日最多3笔止盈)</span><br>
+      <span class="toggle-label">高级模式:0.9底仓 + 每日10%杠杆操作(软顶1.5倍 + 180日<span id="lbl-stop1">…</span>熔断仅停双边挂单 + 每日最多3笔止盈)</span><br>
       <span class="toggle-sub">开启后需要你手动维护"持仓中的杠杆仓位"记录,工具会据此判断能不能新开仓、以及提醒你哪些老仓位今天要继续挂止盈单</span>
     </span>
   </label>
@@ -150,7 +150,7 @@
 </div>
 
 <div class="card" id="thresholdCard" style="display:none">
-  <div class="row-title">①判定阈值(默认0.75,由历史验证集选出) — 决定是否集合竞价卖出</div>
+  <div class="row-title">①判定阈值(默认<span id="lbl-gate">…</span>,由历史验证集选出) — 决定是否集合竞价卖出</div>
   <div id="threshold-row">
     <input type="range" id="thresholdSlider" min="0.3" max="0.95" step="0.001" value="0.779">
     <span id="threshold-val">0.779</span>
@@ -482,14 +482,21 @@ function std(arr) { const m = mean(arr); return Math.sqrt(mean(arr.map(x => (x-m
 // ---- feature engineering, mirrors the Python reference (full_model_2y.py) exactly ----
 // bars: {date, open, high, low, close, volume} sorted ascending. Returns feature vector for index t
 // using only data strictly before or at t-1 (own_*) and index t's "open" (commodity gap only).
-function computeFeatureRow(t, stockBars, futuresBars, commodityOpenOverride) {
+function computeFeatureRow(t, stockBars, futByDate, commodityOpenOverride) {
   const s = stockBars;
-  const f = {}; // per-commodity gap using bar[t].open vs bar[t-1].close, unless override given for "today"
+  const f = {}; // per-commodity gap using the 09:00 day open vs the prior close, unless override given
   const names = ["methanol","pta","crude","coking_coal","pp"];
   const keys = ["ma","ta","sc","jm","pp"];
+  // Commodities are looked up BY DATE, never by position. Positional indexing forced stockBars to be
+  // shrunk to the dates every commodity had, which (a) made the reference simulation run over a
+  // different bar set than Python's -- breaking the drift self-check -- and (b) silently redefined
+  // every lag, since t-1/t-5/t-20 then skipped the removed dates. Python keys on the stock's own
+  // previous trading date and merely excludes unusable ROWS from training; this now matches.
+  const prevDate = s[t-1] ? s[t-1].date : null;
+  const curDate = s[t] ? s[t].date : null;
   for (let i=0;i<names.length;i++) {
-    const bars = futuresBars[keys[i]];
-    const prevClose = bars[t-1].close;
+    const pb = prevDate ? futByDate[keys[i]].get(prevDate) : null;
+    const prevClose = pb ? pb.close : NaN;
     // The gap must be measured to the 09:00 DAY-SESSION open, not to bars[t].open. A commodity
     // daily bar's "open" is the PREVIOUS EVENING's 21:00 night-session open, so on a Monday it
     // predates the entire weekend -- verified two ways: the daily open sits 0.10-0.17% from the prior
@@ -498,7 +505,7 @@ function computeFeatureRow(t, stockBars, futuresBars, commodityOpenOverride) {
     // Rebuilding the feature on the 09:00 open lifted walk-forward AUC 0.588 -> 0.605.
     // dayopen[] comes from daily_state.json (chained contract-month 120-min bars, 2020-02-10 on).
     const dayOpenMap = (dailyState && dailyState.dayopen && dailyState.dayopen[keys[i]]) || null;
-    const histOpen = dayOpenMap ? dayOpenMap[bars[t] && bars[t].date] : undefined;
+    const histOpen = (dayOpenMap && curDate) ? dayOpenMap[curDate] : undefined;
     // If the day-session open is missing for this date, the row is UNUSABLE -- it must not fall back
     // to bars[t].open, because that is the prior 21:00 night open, a different quantity. Mixing the
     // two inside one training set is worse than dropping the row: the model would be fitted on a
@@ -1089,6 +1096,11 @@ function referenceSimulate(stockBars, probs, warmup, stoppedEod, cfg) {
     // 09:25 snapshot: the soft cap must see the book as it stands when the order is placed, not what
     // survives the day's take-profits (which is lookahead -- you cannot know which will fill).
     const bookAtOpen = tranches.slice();
+    // Equity as it truly stands at 09:25 -- captured BEFORE the day's take-profit loop touches cash.
+    // The soft-cap ratio must mark numerator and denominator at the same moment; using yesterday's
+    // close equity overstated headroom on any morning the stock gapped, and let buys through that
+    // Python declined.
+    const eqAtOpen = baselineShares * o + bookAtOpen.reduce((s, tr) => s + tr.shares * o, 0) + cash;
     const stoppedToday = !!stoppedEod[t-1];
     const p = probs[t];
     const stdTFires = (p !== null && p !== undefined && isFinite(p) && p >= cfg.thresh);
@@ -1115,15 +1127,15 @@ function referenceSimulate(stockBars, probs, warmup, stoppedEod, cfg) {
       baselineValT = (baselineValPrev - sliceVal) * (c / cPrev) + sliceVal * r;
       baselineShares = baselineValT / c;
     } else {
-      const buyTrigger = o * (1 - cfg.buy_depth);
-      const sellTrigger = o * (1 + cfg.sell_pop);
+      const buyTrigger = tickRound(o * (1 - cfg.buy_depth), cfg.tick);
+      const sellTrigger = tickRound(o * (1 + cfg.sell_pop), cfg.tick);
       const buyFires = l <= buyTrigger;
       let bought = false;
       if (buyFires && !stoppedToday) {
         const openVal = bookAtOpen.reduce((s, tr) => s + tr.shares * o, 0);
         const curExposure = baselineShares * o + openVal;
         const newShares = (cfg.slice_frac * eqPrev) / buyTrigger;
-        if ((curExposure + newShares * buyTrigger) / eqPrev <= cfg.lev_cap) {
+        if ((curExposure + newShares * buyTrigger) / Math.max(eqAtOpen, 1e-9) <= cfg.lev_cap) {
           bought = true;
           cash -= newShares * buyTrigger * (1 + C);
           if (h >= sellTrigger) cash += newShares * sellTrigger * (1 - C);
@@ -1147,6 +1159,17 @@ function referenceSimulate(stockBars, probs, warmup, stoppedEod, cfg) {
     rebalance(c);
   }
   return { equity, bench, leverage };
+}
+
+// Limit prices must sit on the exchange's 0.01 increment. Python rounds with round(px/tick)*tick,
+// and Python's round() is BANKER'S rounding (half-to-even) -- Math.round() is half-UP, so a naive
+// port disagrees on exact .5 cases. Reproduced exactly here: without the rounding at all, the page's
+// reference simulation drifted from Python's from the very first trading day (8.09e-2 by 2021).
+function tickRound(px, tick) {
+  if (!tick) return px;
+  const q = px / tick, f = Math.floor(q), d = q - f;
+  const r = d > 0.5 ? f + 1 : d < 0.5 ? f : (f % 2 === 0 ? f : f + 1);
+  return r * tick;
 }
 
 // Re-derive the reference signal here and compare with Python's, day by day.
@@ -1422,6 +1445,15 @@ async function loadDailyState() {
       el.value = gt;
       document.getElementById("threshold-val").textContent = (+gt).toFixed(3);
     }
+    // Every threshold printed in prose is filled in from the shipped state, never typed into the
+    // HTML. Three of them had gone stale (20% stop line while the engine ran 8%, a 0.75 gate while
+    // the engine ran 0.779) -- the numbers on screen contradicted the numbers being computed.
+    const pct = (v, d=0) => (v*100).toFixed(d) + "%";
+    const put = (id, txt) => { const e = document.getElementById(id); if (e) e.textContent = txt; };
+    const br = dailyState.breaker || {};
+    if (br.stop_thresh != null) { put("lbl-stop1", pct(br.stop_thresh)); put("lbl-stop2", pct(br.stop_thresh)); }
+    if (br.resume_thresh != null) put("lbl-resume", pct(br.resume_thresh));
+    if (gt != null) put("lbl-gate", (+gt).toFixed(3));
   } catch (e) {
     dailyState = null;
     console.warn("daily_state.json 读取失败:", e.message);
@@ -1956,7 +1988,7 @@ function renderBreakerStatus() {
   el.innerHTML = `
     ${badge}<br><br>
     "假设从未熔断"的180自然日滚动超额收益: <b>${(b.trailingExcess*100).toFixed(2)}%</b>
-    (触发停摆线20%,解除线0%)<br>
+    (触发停摆线${(BP("stop_thresh", 0.08)*100).toFixed(0)}%,解除线${(BP("resume_thresh", 0)*100).toFixed(0)}%)<br>
     解除条件: <b>这个滚动超额收益回落到 ≤0%</b> 即解除,没有附加条件(曾试过再加"股价须回到停摆时水平",
     但在底仓按90%维护的前提下它已无实际作用,见说明第30条)<br>
     最近一次状态切换: ${b.lastTransition ? `${b.lastTransition.date} (${b.lastTransition.type==='STOP'?'停摆':'解除'})` : "无"}
@@ -1978,7 +2010,8 @@ async function runPipeline() {
   const decisionCard = document.getElementById("decisionCard");
   try {
     statusEl.textContent = "拉取股票历史数据…"; statusEl.className = "status";
-    const stockBars = await fetchStockHistory();
+    // `let`, not `const`: the date-intersection alignment below rebinds this.
+    let stockBars = await fetchStockHistory();
 
     statusEl.textContent = "拉取商品期货历史数据…";
     const futuresBars = {};
@@ -1988,20 +2021,33 @@ async function runPipeline() {
       futuresBars[keys[i]] = await fetchFuturesHistory(futSpecs[i][0], futSpecs[i][1]);
     }
 
-    // align all series on stock's trading dates (commodities share the same calendar; drop any stray extra dates)
-    const stockDates = new Set(stockBars.map(r=>r.date));
-    for (const k of keys) futuresBars[k] = futuresBars[k].filter(r => stockDates.has(r.date));
-    // Align on the INTERSECTION of dates present in every series. Length-truncation silently dropped
-    // the most recent stock bar whenever a commodity series was missing a middle date -- it removed
-    // the wrong bar, at the end, which is the one today's decision depends on.
-    const futSets = keys.map(k => new Set(futuresBars[k].map(b => b.date)));
-    stockBars = stockBars.filter(b => futSets.every(S => S.has(b.date)));
-    keys.forEach(k => {
-      const keep = new Set(stockBars.map(b => b.date));
-      futuresBars[k] = futuresBars[k].filter(b => keep.has(b.date));
-    });
+    // Index the commodities by date -- never by position. Positional indexing forced stockBars to be
+    // shrunk to the dates every commodity had, which silently redefined every lag (t-1/t-5/t-20 then
+    // skipped the removed dates) and made this page simulate a different history than Python.
+    const futByDate = {};
+    for (const k of keys) futByDate[k] = new Map(futuresBars[k].map(b => [b.date, b]));
+
+    // The trading-day calendar is whatever daily_state.json says it is. Python drops a stock day when
+    // any commodity has a data gap (2019-07-17 is missing from methanol, so its 1750 bars are this
+    // page's 1751 minus that one), and one extra bar is enough to move the whole compounded path --
+    // it showed up as an 8.09e-2 drift-check failure. Bars NEWER than the state file are always kept,
+    // otherwise the page could never act on today.
+    if (dailyState && dailyState.model && dailyState.model.dates) {
+      const known = new Set(dailyState.model.dates);
+      const cutoff = dailyState.generated_from.last_date;
+      const before = stockBars.length;
+      stockBars = stockBars.filter(b => known.has(b.date) || b.date > cutoff);
+      if (before !== stockBars.length) {
+        console.log(`[align] 按 daily_state.json 的交易日历丢弃 ${before - stockBars.length} 根K线`);
+      }
+    }
     const nAll = stockBars.length;
 
+    // the commodity's close on the stock's most recent trading day, by date
+    const lastFutClose = (k) => {
+      const b = futByDate[k].get(stockBars[nAll-1].date);
+      return b ? b.close : "—";
+    };
     statusEl.textContent = "拉取实时行情(今开)…";
     const rt = await fetchRealtimeQuotes();
     // How far behind is the shipped day-open history? Every trading day past its end is a row the
@@ -2026,7 +2072,7 @@ async function runPipeline() {
     const X = [], y = [];
     let droppedRows = 0;
     for (let t=WARMUP; t<nAll; t++) {
-      const row = computeFeatureRow(t, stockBars, futuresBars, null);
+      const row = computeFeatureRow(t, stockBars, futByDate, null);
       if (row.some(v => !isFinite(v))) { droppedRows++; continue; }   // no day-session open for that date
       X.push(row);
       y.push(touch[t]);
@@ -2037,7 +2083,7 @@ async function runPipeline() {
     const model = trainLogisticRegression(Xz, y, { lr:0.5, iters:4000, l2:1.0 });
 
     // today's live feature row: own_* use bars[nAll-1] as "yesterday", commodity gap uses real-time open
-    const liveRaw = computeFeatureRow(nAll, stockBars, futuresBars, rtOpen);
+    const liveRaw = computeFeatureRow(nAll, stockBars, futByDate, rtOpen);
     const liveZ = liveRaw.map((v,j) => (v-mu[j])/sd[j]);
     let z = model.b;
     for (let j=0;j<liveZ.length;j++) z += model.w[j]*liveZ[j];
@@ -2073,11 +2119,11 @@ async function runPipeline() {
       <tr><th>数据</th><th>值</th></tr>
       <tr><td>股票最近收盘日(历史,来自新浪)</td><td>${lastStock.date} 收盘 ${lastStock.close}</td></tr>
       <tr><td>股票实时今开/昨收/现价(来自东方财富)</td><td>${stockRtOpen} / ${stockRtPrevClose} / ${stockRtCurrent}</td></tr>
-      <tr><td>甲醇(MA) 日盘开 / 昨收</td><td>${rtOpen.ma} / ${futuresBars.ma[nAll-1].close} <span style="color:var(--muted)">${dayOpenSrc.ma}</span></td></tr>
-      <tr><td>PTA(TA) 日盘开 / 昨收</td><td>${rtOpen.ta} / ${futuresBars.ta[nAll-1].close} <span style="color:var(--muted)">${dayOpenSrc.ta}</span></td></tr>
-      <tr><td>原油SC 日盘开 / 昨收</td><td>${rtOpen.sc} / ${futuresBars.sc[nAll-1].close} <span style="color:var(--muted)">${dayOpenSrc.sc}</span></td></tr>
-      <tr><td>焦煤(JM) 日盘开 / 昨收</td><td>${rtOpen.jm} / ${futuresBars.jm[nAll-1].close} <span style="color:var(--muted)">${dayOpenSrc.jm}</span></td></tr>
-      <tr><td>聚丙烯(PP) 日盘开 / 昨收</td><td>${rtOpen.pp} / ${futuresBars.pp[nAll-1].close} <span style="color:var(--muted)">${dayOpenSrc.pp}</span></td></tr>
+      <tr><td>甲醇(MA) 日盘开 / 昨收</td><td>${rtOpen.ma} / ${lastFutClose('ma')} <span style="color:var(--muted)">${dayOpenSrc.ma}</span></td></tr>
+      <tr><td>PTA(TA) 日盘开 / 昨收</td><td>${rtOpen.ta} / ${lastFutClose('ta')} <span style="color:var(--muted)">${dayOpenSrc.ta}</span></td></tr>
+      <tr><td>原油SC 日盘开 / 昨收</td><td>${rtOpen.sc} / ${lastFutClose('sc')} <span style="color:var(--muted)">${dayOpenSrc.sc}</span></td></tr>
+      <tr><td>焦煤(JM) 日盘开 / 昨收</td><td>${rtOpen.jm} / ${lastFutClose('jm')} <span style="color:var(--muted)">${dayOpenSrc.jm}</span></td></tr>
+      <tr><td>聚丙烯(PP) 日盘开 / 昨收</td><td>${rtOpen.pp} / ${lastFutClose('pp')} <span style="color:var(--muted)">${dayOpenSrc.pp}</span></td></tr>
       <tr><td>训练样本量</td><td>${X.length} 天${droppedRows ? `,丢弃 ${droppedRows} 天(无日盘开盘价)` : ""}</td></tr>
       <tr><td>日盘开盘价覆盖到</td><td>${dayOpenLast || "缺失"}${dayOpenStale > 5
         ? ` <b style="color:var(--red)">落后 ${dayOpenStale} 个交易日 —— 请重新生成并上传 daily_state.json</b>`
