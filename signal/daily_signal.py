@@ -343,16 +343,23 @@ def send_email(subject, body):
     .github/workflows/daily-signal.yml exactly:
         SMTP_HOST  SMTP_PORT  SMTP_USER  SMTP_PASS  MAIL_TO
     """
-    host = os.environ.get("SMTP_HOST")
-    port = int(os.environ.get("SMTP_PORT", "465"))
-    user = os.environ.get("SMTP_USER")
-    pw = os.environ.get("SMTP_PASS")
-    to = os.environ.get("MAIL_TO") or user
+    # .get(k, default) does NOT fall back when the variable is set-but-empty, which is exactly what an
+    # undefined GitHub secret expands to. `or` handles both, and every check runs BEFORE any parsing
+    # so a bad value reports itself by name instead of dying in int().
+    def env(k, default=""):
+        return (os.environ.get(k) or default).strip()
+
+    host, user, pw = env("SMTP_HOST"), env("SMTP_USER"), env("SMTP_PASS")
+    port_s = env("SMTP_PORT", "465")
+    to = env("MAIL_TO") or user
     missing = [n for n, v in (("SMTP_HOST", host), ("SMTP_USER", user), ("SMTP_PASS", pw)) if not v]
     if missing:
         raise RuntimeError("缺少环境变量: " + ", ".join(missing)
                             + " —— 请在 Settings → Secrets and variables → Actions →"
                               " Repository secrets 里添加(注意不是 Environment secrets)")
+    if not port_s.isdigit():
+        raise RuntimeError(f"SMTP_PORT 必须是数字,现在是 {port_s!r} —— Gmail 用 465")
+    port = int(port_s)
     m = EmailMessage()
     m["Subject"] = subject
     m["From"] = user
