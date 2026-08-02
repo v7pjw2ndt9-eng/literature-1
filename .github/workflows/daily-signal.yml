@@ -47,12 +47,22 @@ jobs:
         env:
           FORCE: ${{ inputs.force }}
         run: |
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          python3 - <<'PY'
           import json, os, ssl, urllib.request, datetime, re, sys
+
+          # $GITHUB_OUTPUT accepts ONLY key=value lines. The whole script's stdout used to be
+          # redirected into it, which meant every ::notice:: went in there too -- and a notice with no
+          # "=" in it fails the step outright. (The one that did contain "=" merely created a junk
+          # variable and never showed up as an annotation.) So: outputs are written here, explicitly,
+          # and everything else goes to the log where it belongs.
+          def emit(v):
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write(f"trading={v}\n")
+
           # Manual override, so delivery can be proven on a weekend instead of waiting for Monday.
           # Only reachable via workflow_dispatch: `inputs.force` is empty on a scheduled run.
           if os.environ.get("FORCE") == "true":
-              print("trading=true")
+              emit("true")
               print("::notice::强制发送已开启,跳过休市判断(内容取上一个交易日,仅用于验证投递)")
               sys.exit(0)
           ctx = ssl.create_default_context()
@@ -69,7 +79,7 @@ jobs:
           except Exception as e:
               print(f"::warning::开市判断失败,按开市处理: {e}")
               open_today = True
-          print(f"trading={'true' if open_today else 'false'}")
+          emit("true" if open_today else "false")
           print(f"::notice::{today} 开市={open_today}")
           PY
 
