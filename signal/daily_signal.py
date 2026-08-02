@@ -32,9 +32,12 @@ import argparse
 import json
 import os
 import re
+import smtplib
 import ssl
 import sys
+import time
 import urllib.request
+from email.message import EmailMessage
 from datetime import datetime, timezone, timedelta
 
 import numpy as np
@@ -43,10 +46,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from strategy_core import (Config, simulate, breaker_signal, breaker_states, transitions,
                            REFERENCE_CONFIG, REFERENCE_VERSION,
                            BREAKER_STOP_THRESH, BREAKER_RESUME_THRESH)
-# Gate threshold and headline stats are read from the engine / the shipped state file, never written
-# here: the threshold moved 0.75 -> 0.779 with the day-open model, and a hardcoded copy in this file
-# would be the fifth instance of the same constant-in-two-places failure.
-from leverage_backtest_cap3 import THRESH
+# The gate threshold is read from daily_state.json (model.gate_thresh) -- the same place index.html
+# reads it. It is deliberately NOT imported from leverage_backtest_cap3: that module imports
+# matplotlib at module level, which the CI job does not install (and should not, for a mail script).
+# Keeping it out also means only two .py files need deploying instead of three.
 
 CN = timezone(timedelta(hours=8))
 HISTORY_START = "2019-05-16"
@@ -204,6 +207,9 @@ def build(gist_url=None, wait_open=False):
     if ds_path is None:
         raise RuntimeError("找不到 daily_state.json(已找 signal/ 和仓库根目录)—— 请先运行 export_state.py")
     ds = json.load(open(ds_path, encoding="utf-8"))
+    gate_thresh = (ds.get("model") or {}).get("gate_thresh")
+    if gate_thresh is None:
+        raise RuntimeError("daily_state.json 里没有 model.gate_thresh —— 请用新版 export_state.py 重新生成")
     pmap = dict(zip(ds["model"]["dates"], ds["model"]["oos_prob"]))
     missing = [b["date"] for b in bars if b["date"] not in pmap]
     probs_hist = np.array([pmap.get(b["date"], np.nan) if pmap.get(b["date"]) is not None else np.nan
@@ -223,7 +229,8 @@ def build(gist_url=None, wait_open=False):
     return {
         "now": datetime.now(CN).strftime("%Y-%m-%d %H:%M"),
         "last_bar": bars[-1]["date"], "last_close": bars[-1]["close"],
-        "stock_rt": rt["u"], "prob": prob, "gate_open": prob >= THRESH,
+        "stock_rt": rt["u"], "prob": prob, "gate_open": prob >= gate_thresh,
+        "gate_thresh": gate_thresh,
         "stopped": stopped, "signal": last_sig,
         "last_transition": trs[-1] if trs else None,
         "tranches": tranches, "total_equity": total_eq, "baseline_value": base_val,
@@ -248,7 +255,7 @@ def render(d):
         head = "正常 — 9:25 挂双边单"
     A(f"600989 {d['now']}   【{head}】")
     A("")
-    A(f"模型概率 {d['prob']*100:.1f}%  (阈值 {THRESH*100:.1f}%,{'≥ 闸门开' if gate else '< 闸门关'})")
+    A(f"模型概率 {d['prob']*100:.1f}%  (阈值 {d['gate_thresh']*100:.1f}%,{'≥ 闸门开' if gate else '< 闸门关'})")
     sg = "n/a" if d["signal"] is None else f"{d['signal']*100:+.2f}%"
     A(f"熔断信号 {sg}  (停摆线 +{BREAKER_STOP_THRESH*100:.0f}% / 解除线 {BREAKER_RESUME_THRESH*100:.0f}%)"
       f"  状态: {'停摆中' if stop else '正常'}")
@@ -257,6 +264,12 @@ def render(d):
         A(f"最近切换 {t['date']} {'停摆' if t['type']=='STOP' else '解除'}")
     A("")
 
+    # Which tranche (if any) the upper leg will retire. It has to be excluded from the take-profit
+    # list below: one position, one resting order. The web checklist already does this; the email
+    # did not, and would have asked for two live sells against the same shares.
+    trs_sorted = sorted(d["tranches"], key=lambda x: x.get("date", ""))
+    claimed = trs_sorted[0] if (trs_sorted and not gate) else None
+
     op = d.get("stock_open")
     if op:
         A(f"── 今日挂单价(开盘 {op:.2f},已确定)──")
@@ -264,12 +277,13 @@ def render(d):
         if stop or gate:
             A("  不挂买单。" + ("熔断只挡买入,卖单照挂。" if stop else "闸门开启,整套双边都不做。"))
             if stop:
-                A(f"  上方卖单: {sell:.2f}   → 平掉最老的一笔加仓"
-                  + ("" if d["tranches"] else "(当前无加仓,不挂)"))
+                A(f"  上方卖单: {sell:.2f}   → 平掉 {claimed['date']} 那笔({claimed['shares']}股,成本 {claimed['cost']:.2f})"
+              if claimed else "  上方卖单不挂(当前没有加仓仓位可平)")
         else:
             A(f"  买单: {buy:.2f}    (先确认买入后杠杆不超 1.5 倍,超了就只挂卖单)")
-            A(f"  卖单: {sell:.2f}    → 买单也成交则当日了结;否则平掉最老的一笔加仓"
-              + ("" if d["tranches"] else ";当前无加仓,若买单没成交则此单不挂"))
+            A(f"  卖单: {sell:.2f}    → 若买单也成交=当日了结那批新股;"
+              + (f"若买单没成交=平掉 {claimed['date']} 那笔" if claimed
+                 else "若买单没成交则此单不挂(无加仓可平)"))
     else:
         A("── 9:25 开盘价出来后 ──")
         A(f"  (未取到开盘价,等了 {d.get('waited_s', 0)}s;下面给公式,请自行按开盘价换算)")
@@ -282,13 +296,20 @@ def render(d):
             A("  卖单: 开盘价 × 1.03      → 若买单也成交则为当日了结;否则平掉最老的一笔加仓")
     A("")
 
-    trs = d["tranches"]
-    if trs:
-        A(f"── 老仓位止盈单(共 {len(trs)} 笔,每天最多成交 3 笔,最老优先)──")
-        for t in sorted(trs, key=lambda x: x.get("date", "")):
+    rest = [t for t in trs_sorted if t is not claimed]
+    if rest:
+        # the upper leg, if it takes one, consumes one of the three daily slots
+        slots = 3 - (1 if claimed else 0)
+        A(f"── 老仓位止盈单(还剩 {len(rest)} 笔,今日最多再成交 {slots} 笔,最老优先)──")
+        for i, t in enumerate(rest):
+            tag = "" if i < slots else "   ← 今日额度已满,先别挂"
             A(f"  {t.get('date','?')}  {t.get('shares','?')}股  成本 {t.get('cost',0):.2f}"
-              f"  → 挂 {t.get('cost',0)*1.05:.2f}")
-        A("  这些单子任何时候都要挂,熔断和闸门都不影响。")
+              f"  → 挂 {t.get('cost',0)*1.05:.2f}{tag}")
+        A("  这些单子熔断和闸门都不影响,照挂。")
+        if claimed:
+            A(f"  注:{claimed['date']} 那笔已由上方卖单认领,<b>不要再给它挂止盈单</b>。".replace("<b>","").replace("</b>",""))
+    elif claimed:
+        A("── 除了上方卖单认领的那笔,没有其它加仓仓位 ──")
     else:
         A("── 当前没有加仓仓位 ──")
         A("  上方卖单不挂(它的作用是平掉一笔加仓,不是卖底仓)。")
@@ -316,13 +337,55 @@ def render(d):
     return "\n".join(L)
 
 
+def send_email(subject, body):
+    """Send via SMTP. Every credential comes from the environment -- nothing is stored in this file,
+    defaulted, or logged. The variable names here must match the `env:` block in
+    .github/workflows/daily-signal.yml exactly:
+        SMTP_HOST  SMTP_PORT  SMTP_USER  SMTP_PASS  MAIL_TO
+    """
+    host = os.environ.get("SMTP_HOST")
+    port = int(os.environ.get("SMTP_PORT", "465"))
+    user = os.environ.get("SMTP_USER")
+    pw = os.environ.get("SMTP_PASS")
+    to = os.environ.get("MAIL_TO") or user
+    missing = [n for n, v in (("SMTP_HOST", host), ("SMTP_USER", user), ("SMTP_PASS", pw)) if not v]
+    if missing:
+        raise RuntimeError("缺少环境变量: " + ", ".join(missing)
+                            + " —— 请在 Settings → Secrets and variables → Actions →"
+                              " Repository secrets 里添加(注意不是 Environment secrets)")
+    m = EmailMessage()
+    m["Subject"] = subject
+    m["From"] = user
+    m["To"] = to
+    m.set_content(body)
+    ctx = ssl.create_default_context()
+    if port == 465:
+        with smtplib.SMTP_SSL(host, port, context=ctx, timeout=30) as sv:
+            sv.login(user, pw)
+            sv.send_message(m)
+    else:
+        with smtplib.SMTP(host, port, timeout=30) as sv:
+            sv.starttls(context=ctx)
+            sv.login(user, pw)
+            sv.send_message(m)
+    print(f"[ok] 已发送至 {to}", file=sys.stderr)
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--gist", default=os.environ.get("POSITIONS_GIST_RAW_URL"),
                     help="raw URL of the gist the web tool syncs positions to (optional)")
-    ap.add_argument("--out", default=None)
+    ap.add_argument("--out", default=None, help="also write the message to this file")
+    ap.add_argument("--wait-open", action="store_true",
+                    help="poll until the 09:25 call auction fixes the stock open (up to 15 min)")
+    ap.add_argument("--send", action="store_true", help="send by SMTP using the env credentials")
     a = ap.parse_args()
-    msg = render(build(a.gist))
+
+    d = build(a.gist, wait_open=a.wait_open)
+    msg = render(d)
     if a.out:
         open(a.out, "w", encoding="utf-8").write(msg)
     print(msg)
+    if a.send:
+        head = "熔断停摆" if d["stopped"] else ("闸门开-不开仓" if d["gate_open"] else "正常-挂双边")
+        send_email(f"600989 {d['now'][:10]} 【{head}】 概率{d['prob']*100:.0f}%", msg)
