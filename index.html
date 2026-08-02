@@ -152,8 +152,8 @@
 <div class="card" id="thresholdCard" style="display:none">
   <div class="row-title">①判定阈值(默认0.75,由历史验证集选出) — 决定是否集合竞价卖出</div>
   <div id="threshold-row">
-    <input type="range" id="thresholdSlider" min="0.3" max="0.95" step="0.01" value="0.75">
-    <span id="threshold-val">0.75</span>
+    <input type="range" id="thresholdSlider" min="0.3" max="0.95" step="0.001" value="0.779">
+    <span id="threshold-val">0.779</span>
   </div>
 </div>
 
@@ -234,9 +234,9 @@
   · 9:25集合竞价结束、开盘价出来后,点"重新拉取"刷新本页,看卡片②给出的具体挂单价格(卖出模式给买入价;双边模式给卖出价+买入价)。<br>
   <br>
   <b>使用说明与局限:</b><br>
-  1. 现行口径("A方案")2020-01-23 ~ 2026-07-31,1579个交易日:收益 <b>175.7%</b>,100%长持 45.5%,日均杠杆 1.169,顶格(≥1.45)时间 <b>15.8%</b>,日均融资占用 20.6% 净值,平均每月约 <b>8.9 笔</b>成交(每年107笔)。含 0.1%/边手续费、5% 年化融资成本、挂单价按0.01取整。<br>
+  1. 现行口径("A方案")<b>2020-09-16 ~ 2026-07-31,1422个交易日</b>:收益 <b>160.4%</b>,100%长持同期约 118%,日均杠杆 1.15,顶格(≥1.45)时间 <b>11.3%</b>,日均融资占用 18.5%。含 0.1%/边手续费、5% 年化融资成本、挂单价按0.01取整。<br>
   2. 商品隔夜特征用的是东方财富实时行情的"今开"字段对比上一交易日收盘,数据可能有数秒到数分钟延迟。<br>
-  3. 阈值0.75是在一段历史验证集上选出的,不是理论最优值,可用滑块自行调整观察。<br>
+  3. <b>闸门阈值 0.779,以及商品特征用"当天09:00日盘开盘价"</b>,都是 2026-08-02 改的。原因:商品日线的"开"其实是<b>前一晚21:00夜盘开</b>(两种独立方法验证过),周一那根因此早于整个周末。改用日盘开后 walk-forward AUC 0.588→0.605,对正则强度不敏感,周一改善最大。代价有两条:①样本起点从2020-01-23推迟到2020-09-16(新特征2020-02-10才有,还要171天起训);②<b>在这条唯一的价格路径上,新模型回测反而差约50pp</b>——但该差异约0.7个标准差,小于"随机挑弃做日"本身的波动(11.8pp),所以既不能说它更好也不能说更差。阈值从0.75提到0.779是为了保持原来的弃做频率(约9%的交易日),否则换模型会连带把频率抬高39%。<br>
   4. <b>双边挂单模式(卡片②里的"卖/买"两个价)需要你有闲置资金或融资融券额度</b>——如果先跌到买入价、还没卖出你就得先接盘,满仓且无杠杆的账户实际做不到这一步,会退化成"只能等冲高才卖、跌了买不到"的更差情形。<br>
   5. 双边挂单的上界X(默认3%)不是回测证明的最优值——历史数据显示这个数字在2%~8%之间来回摆动都没有稳定规律,纯粹是历史样本里少数几次大波动天数决定的,调整滑块只是给你一个参考区间,不代表精确调优。<br>
   6. 回测假设"日内最高/最低价触及挂单价就一定按挂单价成交",真实市场里快速拉升/砸盘时挂在极值点的限价单可能只部分成交甚至不成交。<br>
@@ -443,6 +443,31 @@ async function fetchRealtimeQuoteEM(secid) {
   return json.data; // {f43: current, f46: today_open, f58: name, f60: prev_close}
 }
 
+// Today's 09:00 DAY-SESSION open, read from the first 120-minute bar of the current session. This
+// has to match what the model was TRAINED on: the history in daily_state.dayopen is built from the
+// same 120-min series, while the realtime feed's "今开" (f46) is the prior 21:00 night open -- a
+// different quantity. Falls back to the last traded price, which at 09:15 is within minutes of the
+// 09:00 print, and reports which source was used so a silent mismatch is impossible.
+const SINA_FUT_SYMBOLS = { ma: "MA0", ta: "TA0", sc: "SC0", jm: "JM0", pp: "PP0" };
+async function fetchTodayDayOpen(rtFallback) {
+  const out = {}, src = {};
+  const today = todayDateStr();
+  for (const k of Object.keys(SINA_FUT_SYMBOLS)) {
+    let v = null;
+    try {
+      const rows = await jsonpScript(
+        `https://stock2.finance.sina.com.cn/futures/api/jsonp.php/var%20_DO_${k}=/`
+        + `InnerFuturesNewService.getFewMinLine?symbol=${SINA_FUT_SYMBOLS[k]}&type=120`,
+        `_DO_${k}`);
+      const todays = rows.filter(r => (r.d || "").startsWith(today)).sort((a,b) => a.d < b.d ? -1 : 1);
+      if (todays.length) v = parseFloat(todays[0].o);
+    } catch (e) { /* fall through to the fallback below */ }
+    if (v && isFinite(v)) { out[k] = v; src[k] = "09:00日盘开"; }
+    else { out[k] = rtFallback[k] ? rtFallback[k].f43 : null; src[k] = "现价(日盘开未取到)"; }
+  }
+  return { open: out, source: src };
+}
+
 async function fetchRealtimeQuotes() {
   const keys = Object.keys(EM_SECIDS);
   const results = await Promise.all(keys.map(k => fetchRealtimeQuoteEM(EM_SECIDS[k])));
@@ -465,8 +490,21 @@ function computeFeatureRow(t, stockBars, futuresBars, commodityOpenOverride) {
   for (let i=0;i<names.length;i++) {
     const bars = futuresBars[keys[i]];
     const prevClose = bars[t-1].close;
-    const todayOpen = commodityOpenOverride ? commodityOpenOverride[keys[i]] : bars[t].open;
-    f[names[i]] = todayOpen/prevClose - 1.0;
+    // The gap must be measured to the 09:00 DAY-SESSION open, not to bars[t].open. A commodity
+    // daily bar's "open" is the PREVIOUS EVENING's 21:00 night-session open, so on a Monday it
+    // predates the entire weekend -- verified two ways: the daily open sits 0.10-0.17% from the prior
+    // 21:00 print but 0.77-1.21% from the 09:00 print, and the daily HIGH routinely exceeds the day
+    // session's own high, which is only possible if the bar spans the prior night.
+    // Rebuilding the feature on the 09:00 open lifted walk-forward AUC 0.588 -> 0.605.
+    // dayopen[] comes from daily_state.json (chained contract-month 120-min bars, 2020-02-10 on).
+    const dayOpenMap = (dailyState && dailyState.dayopen && dailyState.dayopen[keys[i]]) || null;
+    const histOpen = dayOpenMap ? dayOpenMap[bars[t] && bars[t].date] : undefined;
+    // If the day-session open is missing for this date, the row is UNUSABLE -- it must not fall back
+    // to bars[t].open, because that is the prior 21:00 night open, a different quantity. Mixing the
+    // two inside one training set is worse than dropping the row: the model would be fitted on a
+    // silent blend of two definitions and nothing would look wrong.
+    const todayOpen = commodityOpenOverride ? commodityOpenOverride[keys[i]] : histOpen;
+    f[names[i]] = (todayOpen === undefined || todayOpen === null) ? NaN : todayOpen/prevClose - 1.0;
   }
   const ownRangeLag1 = (s[t-1].high - s[t-1].low) / s[t-1].open;
   const ownMom1 = t>=2 ? (s[t-1].close/s[t-2].close - 1.0) : 0;
@@ -772,14 +810,14 @@ function toggleAdvancedCards() {
     document.getElementById(id).style.display = on ? "block" : "none";
   });
   const dateEl = document.getElementById("newTrancheDate");
-  if (on && !dateEl.value) dateEl.value = new Date().toISOString().slice(0,10);
+  if (on && !dateEl.value) dateEl.value = todayDateStr();
 }
 
 function renderExportView() {
   const el = document.getElementById("exportView");
   if (!el) return;
   const lines = [];
-  lines.push(`更新时间: ${new Date().toLocaleString("zh-CN")}`);
+  lines.push(`更新时间: ${beijingNowStr()}`);
   lines.push(`账户总净值: ${advState.totalEquity ?? "(未填写)"}`);
   lines.push(`底仓市值: ${advState.baselineValue ?? "(未填写)"}`);
   lines.push(`持仓记录 (${advState.tranches.length}笔):`);
@@ -1375,6 +1413,15 @@ async function loadDailyState() {
     const r = await fetch("daily_state.json", { cache: "no-store" });
     if (!r.ok) throw new Error("HTTP " + r.status);
     dailyState = await r.json();
+    // The gate threshold is a property of the shipped model, not a UI default. It moved 0.75 -> 0.779
+    // when the features switched to the day-session open (the new probabilities sit higher, so the old
+    // 0.75 would have gated 39% more days). Adopt whatever the engine shipped.
+    const gt = dailyState.model && dailyState.model.gate_thresh;
+    if (gt != null) {
+      const el = document.getElementById("thresholdSlider");
+      el.value = gt;
+      document.getElementById("threshold-val").textContent = (+gt).toFixed(3);
+    }
   } catch (e) {
     dailyState = null;
     console.warn("daily_state.json 读取失败:", e.message);
@@ -1675,7 +1722,20 @@ function renderBracketSellOnly(addItem, logSell, today, sellTarget) {
   return oldest;
 }
 
-function todayDateStr() { return new Date().toISOString().slice(0,10); }
+// Everything in this tool is keyed to the Beijing trading calendar, so "today" must be the Beijing
+// date no matter where the browser is. toISOString() gives the UTC date, which happens to match
+// Beijing during 08:00-24:00 Beijing time -- including the whole trading session -- but is a day
+// BEHIND during Beijing 00:00-08:00. That window is 09:00-17:00 in California, i.e. the middle of
+// the user's working day: ticking a checklist item then would have stamped it with the previous
+// trading date, and the data cache would have considered itself fresh when it was not.
+// 8h inlined rather than held in a const: these are called from handlers defined earlier in the
+// file, and a const is not hoisted, so a stray early call would hit the temporal dead zone.
+function todayDateStr() {
+  return new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+}
+function beijingNowStr() {
+  return new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ") + " (北京)";
+}
 
 function renderTodoList() {
   const card = document.getElementById("todoCard");
@@ -1944,10 +2004,18 @@ async function runPipeline() {
 
     statusEl.textContent = "拉取实时行情(今开)…";
     const rt = await fetchRealtimeQuotes();
-    const rtOpen = {
-      ma: rt.ma.f46, ta: rt.ta.f46, sc: rt.sc.f46, jm: rt.jm.f46, pp: rt.pp.f46,
-    };
-    const rtFetchedAt = new Date().toLocaleString("zh-CN");
+    // How far behind is the shipped day-open history? Every trading day past its end is a row the
+    // model cannot train on, so this degrades quietly unless it is surfaced.
+    let dayOpenStale = 0, dayOpenLast = null;
+    if (dailyState && dailyState.dayopen && dailyState.dayopen.ma) {
+      const ks = Object.keys(dailyState.dayopen.ma).sort();
+      dayOpenLast = ks[ks.length - 1];
+      dayOpenStale = stockBars.filter(b => b.date > dayOpenLast).length;
+    }
+    const dayOpenToday = await fetchTodayDayOpen(rt);
+    const rtOpen = dayOpenToday.open;   // 09:00 day-session open, matching what the model was trained on
+    const dayOpenSrc = dayOpenToday.source;
+    const rtFetchedAt = beijingNowStr();
     const stockRtOpen = rt.u.f46;
     const stockRtPrevClose = rt.u.f60;
     const stockRtCurrent = rt.u.f43;
@@ -1956,10 +2024,15 @@ async function runPipeline() {
     const WARMUP = 21;
     const touch = stockBars.map((r,idx) => (idx>0 && stockBars[idx].low <= stockBars[idx].open*0.99) ? 1 : 0);
     const X = [], y = [];
+    let droppedRows = 0;
     for (let t=WARMUP; t<nAll; t++) {
-      X.push(computeFeatureRow(t, stockBars, futuresBars, null));
+      const row = computeFeatureRow(t, stockBars, futuresBars, null);
+      if (row.some(v => !isFinite(v))) { droppedRows++; continue; }   // no day-session open for that date
+      X.push(row);
       y.push(touch[t]);
     }
+    if (X.length < 200) throw new Error(
+      `可用训练样本只有 ${X.length} 天(丢弃 ${droppedRows} 天)—— daily_state.json 里的日盘开盘价覆盖不足,请重新生成`);
     const { Xz, mu, sd } = standardize(X);
     const model = trainLogisticRegression(Xz, y, { lr:0.5, iters:4000, l2:1.0 });
 
@@ -2000,12 +2073,15 @@ async function runPipeline() {
       <tr><th>数据</th><th>值</th></tr>
       <tr><td>股票最近收盘日(历史,来自新浪)</td><td>${lastStock.date} 收盘 ${lastStock.close}</td></tr>
       <tr><td>股票实时今开/昨收/现价(来自东方财富)</td><td>${stockRtOpen} / ${stockRtPrevClose} / ${stockRtCurrent}</td></tr>
-      <tr><td>甲醇(MA)今开 / 历史昨收</td><td>${rtOpen.ma} / ${futuresBars.ma[nAll-1].close}</td></tr>
-      <tr><td>PTA(TA)今开 / 历史昨收</td><td>${rtOpen.ta} / ${futuresBars.ta[nAll-1].close}</td></tr>
-      <tr><td>原油SC今开 / 历史昨收</td><td>${rtOpen.sc} / ${futuresBars.sc[nAll-1].close}</td></tr>
-      <tr><td>焦煤(JM)今开 / 历史昨收</td><td>${rtOpen.jm} / ${futuresBars.jm[nAll-1].close}</td></tr>
-      <tr><td>聚丙烯(PP)今开 / 历史昨收</td><td>${rtOpen.pp} / ${futuresBars.pp[nAll-1].close}</td></tr>
-      <tr><td>训练样本量</td><td>${X.length} 天 (${stockBars[WARMUP].date} ~ ${lastStock.date})</td></tr>
+      <tr><td>甲醇(MA) 日盘开 / 昨收</td><td>${rtOpen.ma} / ${futuresBars.ma[nAll-1].close} <span style="color:var(--muted)">${dayOpenSrc.ma}</span></td></tr>
+      <tr><td>PTA(TA) 日盘开 / 昨收</td><td>${rtOpen.ta} / ${futuresBars.ta[nAll-1].close} <span style="color:var(--muted)">${dayOpenSrc.ta}</span></td></tr>
+      <tr><td>原油SC 日盘开 / 昨收</td><td>${rtOpen.sc} / ${futuresBars.sc[nAll-1].close} <span style="color:var(--muted)">${dayOpenSrc.sc}</span></td></tr>
+      <tr><td>焦煤(JM) 日盘开 / 昨收</td><td>${rtOpen.jm} / ${futuresBars.jm[nAll-1].close} <span style="color:var(--muted)">${dayOpenSrc.jm}</span></td></tr>
+      <tr><td>聚丙烯(PP) 日盘开 / 昨收</td><td>${rtOpen.pp} / ${futuresBars.pp[nAll-1].close} <span style="color:var(--muted)">${dayOpenSrc.pp}</span></td></tr>
+      <tr><td>训练样本量</td><td>${X.length} 天${droppedRows ? `,丢弃 ${droppedRows} 天(无日盘开盘价)` : ""}</td></tr>
+      <tr><td>日盘开盘价覆盖到</td><td>${dayOpenLast || "缺失"}${dayOpenStale > 5
+        ? ` <b style="color:var(--red)">落后 ${dayOpenStale} 个交易日 —— 请重新生成并上传 daily_state.json</b>`
+        : (dayOpenStale ? ` <span style="color:var(--amber)">落后 ${dayOpenStale} 天</span>` : " ✓")}</td></tr>
       <tr><td>实时行情拉取时间</td><td>${rtFetchedAt}</td></tr>
     `;
     document.getElementById("dataCard").style.display = "block";
@@ -2084,10 +2160,16 @@ function renderOpenPriceDecision() {
   }
 
   if (currentStockOpen === null) {
+    // 09:00-09:25. The commodity day session has opened, so the GATE is already decided; the stock's
+    // own open is not fixed until the 09:25 call auction ends, so the two bracket prices are not.
+    // ("建议卖出" here was left over from standard-T, which no longer exists -- a gated day means
+    // open nothing, not sell something.)
     card.innerHTML = `
-      <div class="label">② 9:25开盘价确定后再刷新本页看这里</div>
-      <div class="verdict" style="color:var(--muted); font-size:18px">开盘价尚未产生</div>
-      <div class="prob">当前处于 ${execute ? "「建议卖出」" : "「双边挂单」"} 模式,9:25集合竞价结束、开盘价出来后点"重新拉取"按钮刷新即可看到具体挂单价格</div>
+      <div class="label">② 开盘价尚未产生(集合竞价 9:15-9:25 进行中)</div>
+      <div class="verdict" style="color:var(--muted); font-size:18px">${execute ? "今日不新开仓 — 已可确定" : "今日挂双边单 — 价格待定"}</div>
+      <div class="prob">${execute
+        ? "闸门已开启,今天不挂双边单,这一条现在就定了,不用再等开盘价。下方老仓位止盈单照常挂。"
+        : "闸门关闭,今天要挂双边单;但买卖价要按开盘价算,<b>9:25 集合竞价结束后点「重新拉取」</b>才会显示。"}</div>
     `;
     renderTodoList();
     return;
@@ -2186,7 +2268,7 @@ document.getElementById("addTrancheBtn").addEventListener("click", () => {
   renderTranchesTable();
   renderExportView();
   renderOpenPriceDecision();
-  dateEl.value = new Date().toISOString().slice(0,10); sharesEl.value = ""; costEl.value = "";
+  dateEl.value = todayDateStr(); sharesEl.value = ""; costEl.value = "";
 });
 
 document.getElementById("exportCsvBtn").addEventListener("click", exportCsv);
