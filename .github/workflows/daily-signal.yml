@@ -15,6 +15,11 @@ on:
   schedule:
     - cron: "12 1 * * 1-5"       # 09:12 Beijing, Mon-Fri
   workflow_dispatch:              # manual run, for testing
+    inputs:
+      force:
+        description: "强制发送(忽略休市判断)—— 周末/节假日测试用,内容取上一个交易日"
+        type: boolean
+        default: false
 
 concurrency:
   group: daily-signal
@@ -39,9 +44,17 @@ jobs:
       # commodity has produced a day-session open, there is no session today.
       - name: 判断今天是否开市
         id: gate
+        env:
+          FORCE: ${{ inputs.force }}
         run: |
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import json, ssl, urllib.request, datetime, re
+          import json, os, ssl, urllib.request, datetime, re, sys
+          # Manual override, so delivery can be proven on a weekend instead of waiting for Monday.
+          # Only reachable via workflow_dispatch: `inputs.force` is empty on a scheduled run.
+          if os.environ.get("FORCE") == "true":
+              print("trading=true")
+              print("::notice::强制发送已开启,跳过休市判断(内容取上一个交易日,仅用于验证投递)")
+              sys.exit(0)
           ctx = ssl.create_default_context()
           today = (datetime.datetime.utcnow() + datetime.timedelta(hours=8)).strftime("%Y-%m-%d")
           req = urllib.request.Request(
