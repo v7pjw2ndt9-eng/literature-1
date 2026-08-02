@@ -1,0 +1,79 @@
+name: 每日开盘信号
+
+# TIMING, and why it is not 09:25
+# The stock's open is fixed by the 09:25 call auction, and the bracket prices depend on it. But
+# GitHub's scheduled runners drift by 5-30 minutes and are sometimes skipped entirely, so aiming at
+# 09:25 would miss more often than it hits. Instead the job starts EARLY and polls for the open.
+#
+# A late run is not a wrong run: once the auction sets the open it does not change for the rest of the
+# session, so the prices in the email stay correct -- only the time left to act shrinks. Every message
+# carries the Beijing timestamp it was built at, so lateness is visible rather than silent.
+#
+# cron is always UTC. 01:12 UTC = 09:12 Beijing, which is after the 09:00 commodity open (so the gate
+# is computable) and a few minutes before the 09:25 auction close (so the poll has room).
+on:
+  schedule:
+    - cron: "12 1 * * 1-5"       # 09:12 Beijing, Mon-Fri
+  workflow_dispatch:              # manual run, for testing
+
+concurrency:
+  group: daily-signal
+  cancel-in-progress: false
+
+jobs:
+  signal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖
+        run: pip install --quiet numpy
+
+      # Chinese exchange holidays are not expressible in cron, so the run is skipped when the market
+      # is plainly not open. The check is data-driven rather than a hardcoded holiday list: if no
+      # commodity has produced a day-session open, there is no session today.
+      - name: 判断今天是否开市
+        id: gate
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, ssl, urllib.request, datetime, re
+          ctx = ssl.create_default_context()
+          today = (datetime.datetime.utcnow() + datetime.timedelta(hours=8)).strftime("%Y-%m-%d")
+          req = urllib.request.Request(
+              "https://stock2.finance.sina.com.cn/futures/api/jsonp.php/var%20_=/"
+              "InnerFuturesNewService.getFewMinLine?symbol=MA0&type=120",
+              headers={"User-Agent": "Mozilla/5.0", "Referer": "https://finance.sina.com.cn"})
+          try:
+              t = urllib.request.urlopen(req, timeout=25, context=ctx).read().decode("utf-8", "replace")
+              i, j = t.find("["), t.rfind("]")
+              rows = json.loads(re.sub(r'([{,])\s*(\w+)\s*:', r'\1"\2":', t[i:j+1]))
+              open_today = any((r.get("d") or "").startswith(today) for r in rows)
+          except Exception as e:
+              print(f"::warning::开市判断失败,按开市处理: {e}")
+              open_today = True
+          print(f"trading={'true' if open_today else 'false'}")
+          print(f"::notice::{today} 开市={open_today}")
+          PY
+
+      - name: 生成并发送
+        if: steps.gate.outputs.trading == 'true'
+        working-directory: signal
+        env:
+          # Set these as repository secrets. They are never read from the repo, never logged, and
+          # never leave the runner.
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          POSITIONS_GIST_RAW_URL: ${{ secrets.POSITIONS_GIST_RAW_URL }}
+        run: python3 daily_signal.py --wait-open --send
+
+      - name: 跳过说明
+        if: steps.gate.outputs.trading != 'true'
+        run: echo "今天没有商品日盘开盘,判定为休市,不发信。"
