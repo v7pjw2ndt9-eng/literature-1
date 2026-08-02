@@ -38,6 +38,7 @@ import sys
 import time
 import urllib.request
 from email.message import EmailMessage
+from email.utils import getaddresses
 from datetime import datetime, timezone, timedelta
 
 import numpy as np
@@ -250,12 +251,13 @@ def render(d):
     if stop:
         head = "熔断停摆中 — 今日不挂买单"
     elif gate:
-        head = "闸门开启 — 今日不新开仓"
+        head = "今日暂停 — 不挂新单"
     else:
         head = "正常 — 9:25 挂双边单"
     A(f"600989 {d['now']}   【{head}】")
     A("")
-    A(f"模型概率 {d['prob']*100:.1f}%  (阈值 {d['gate_thresh']*100:.1f}%,{'≥ 闸门开' if gate else '< 闸门关'})")
+    A(f"模型概率 {d['prob']*100:.1f}% {'≥' if gate else '<'} 阈值 {d['gate_thresh']*100:.1f}%"
+      f"  → {'今日暂停(模型判断今天容易低开低走)' if gate else '今日照常挂单'}")
     sg = "n/a" if d["signal"] is None else f"{d['signal']*100:+.2f}%"
     A(f"熔断信号 {sg}  (停摆线 +{BREAKER_STOP_THRESH*100:.0f}% / 解除线 {BREAKER_RESUME_THRESH*100:.0f}%)"
       f"  状态: {'停摆中' if stop else '正常'}")
@@ -275,7 +277,7 @@ def render(d):
         A(f"── 今日挂单价(开盘 {op:.2f},已确定)──")
         buy, sell = round(op * 0.991, 2), round(op * 1.03, 2)
         if stop or gate:
-            A("  不挂买单。" + ("熔断只挡买入,卖单照挂。" if stop else "闸门开启,整套双边都不做。"))
+            A("  不挂买单。" + ("熔断只挡买入,卖单照挂。" if stop else "今日暂停,买卖两边都不挂。"))
             if stop:
                 A(f"  上方卖单: {sell:.2f}   → 平掉 {claimed['date']} 那笔({claimed['shares']}股,成本 {claimed['cost']:.2f})"
               if claimed else "  上方卖单不挂(当前没有加仓仓位可平)")
@@ -288,7 +290,7 @@ def render(d):
         A("── 9:25 开盘价出来后 ──")
         A(f"  (未取到开盘价,等了 {d.get('waited_s', 0)}s;下面给公式,请自行按开盘价换算)")
         if stop or gate:
-            A("  不挂买单。" + ("熔断只挡买入,卖单照挂。" if stop else "闸门期间整套双边都不做。"))
+            A("  不挂买单。" + ("熔断只挡买入,卖单照挂。" if stop else "今日暂停,买卖两边都不挂。"))
             if stop:
                 A("  上方卖单: 开盘价 × 1.03  → 平掉最老的一笔加仓(没有加仓就不挂)")
         else:
@@ -305,7 +307,7 @@ def render(d):
             tag = "" if i < slots else "   ← 今日额度已满,先别挂"
             A(f"  {t.get('date','?')}  {t.get('shares','?')}股  成本 {t.get('cost',0):.2f}"
               f"  → 挂 {t.get('cost',0)*1.05:.2f}{tag}")
-        A("  这些单子熔断和闸门都不影响,照挂。")
+        A("  这些单子不受今日暂停/熔断影响,任何时候都照挂。")
         if claimed:
             A(f"  注:{claimed['date']} 那笔已由上方卖单认领,<b>不要再给它挂止盈单</b>。".replace("<b>","").replace("</b>",""))
     elif claimed:
@@ -351,7 +353,25 @@ def send_email(subject, body):
 
     host, user, pw = env("SMTP_HOST"), env("SMTP_USER"), env("SMTP_PASS")
     port_s = env("SMTP_PORT", "465")
-    to = env("MAIL_TO") or user
+    # MAIL_TO may list several people. smtplib only splits on COMMAS, so "a@x.com; b@y.com" (the
+    # Outlook habit) or space-separated addresses silently reach only the FIRST person while the log
+    # still prints the whole string and looks fine. Normalise every plausible separator, then verify
+    # the count against the number of @ signs so a malformed entry is an error, not a silent drop.
+    raw_to = env("MAIL_TO") or user
+    n_at = raw_to.count("@")
+    # getaddresses is the correct parser and understands 'Name <a@x.com>', but it only splits on
+    # commas. If it comes up short, the separator was a semicolon or a space -- re-split on those.
+    to_list = [a for _, a in getaddresses([raw_to]) if a]
+    if len(to_list) != n_at:
+        to_list = [a for a in re.split(r"[;,\s]+", raw_to.replace("\n", " ")) if a]
+    bad = [a for a in to_list if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", a)]
+    if bad:
+        raise RuntimeError(f"MAIL_TO 里这些地址看着不对: {bad} —— 多个收件人请用英文逗号分隔,"
+                            f"例如 a@x.com, b@y.com")
+    if len(to_list) != n_at:
+        raise RuntimeError(f"MAIL_TO 解析出 {len(to_list)} 个地址,但字符串里有 {n_at} 个 @ "
+                            f"—— 请检查 {raw_to!r}")
+    to = ", ".join(to_list)
     missing = [n for n, v in (("SMTP_HOST", host), ("SMTP_USER", user), ("SMTP_PASS", pw)) if not v]
     if missing:
         raise RuntimeError("缺少环境变量: " + ", ".join(missing)
@@ -375,7 +395,7 @@ def send_email(subject, body):
             sv.starttls(context=ctx)
             sv.login(user, pw)
             sv.send_message(m)
-    print(f"[ok] 已发送至 {to}", file=sys.stderr)
+    print(f"[ok] 已发送至 {len(to_list)} 个收件人: {to}", file=sys.stderr)
 
 
 if __name__ == "__main__":
@@ -394,5 +414,5 @@ if __name__ == "__main__":
         open(a.out, "w", encoding="utf-8").write(msg)
     print(msg)
     if a.send:
-        head = "熔断停摆" if d["stopped"] else ("闸门开-不开仓" if d["gate_open"] else "正常-挂双边")
+        head = "熔断停摆" if d["stopped"] else ("今日暂停" if d["gate_open"] else "正常-挂双边")
         send_email(f"600989 {d['now'][:10]} 【{head}】 概率{d['prob']*100:.0f}%", msg)
