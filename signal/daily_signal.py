@@ -256,6 +256,23 @@ def render(d):
         head = "正常 — 9:25 挂双边单"
     A(f"600989 {d['now']}   【{head}】")
     A("")
+    # A morning that produced no email is invisible to you; the only place it can surface is the
+    # next one. LAST_SENT is filled in by the workflow from the run history. 4 days of slack covers
+    # a normal Fri->Mon gap without crying wolf.
+    ls = (os.environ.get("LAST_SENT") or "").strip()
+    if ls:
+        try:
+            gap = (datetime.strptime(d["now"][:10], "%Y-%m-%d")
+                   - datetime.strptime(ls, "%Y-%m-%d")).days
+            if gap > 4:
+                A(f"⚠️ 上一封是 {ls},隔了 {gap} 天 —— 中间有交易日没收到信,"
+                  f"去 GitHub Actions 看看定时任务是不是被丢了")
+                A("")
+        except ValueError:
+            pass
+    else:
+        A("⚠️ 查不到历史发送记录(可能是第一次,也可能是 API 没读到),暂时无法判断有没有漏发")
+        A("")
     A(f"模型概率 {d['prob']*100:.1f}% {'≥' if gate else '<'} 阈值 {d['gate_thresh']*100:.1f}%"
       f"  → {'今日暂停(模型判断今天容易低开低走)' if gate else '今日照常挂单'}")
     sg = "n/a" if d["signal"] is None else f"{d['signal']*100:+.2f}%"
