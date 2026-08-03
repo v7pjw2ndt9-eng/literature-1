@@ -105,13 +105,16 @@
     <div class="todo-sub" style="margin-bottom:10px">这两个数字填"现在/最新"的实际值,不是某个历史时间点——每次持仓或净值变化后来更新一下即可,工具会自动按最新数字重新计算</div>
     <div class="inline-fields">
       <div class="field"><label>净资产(元)= 总资产 − 融资欠款</label><input type="number" id="totalEquityInput" placeholder="例如 100000"></div>
-      <div class="field"><label>底仓股票市值(元,不含加仓、不含现金)</label><input type="number" id="baselineValueInput" placeholder="例如 90000"></div>
+      <div class="field"><label>持有 600989 总股数</label><input type="number" step="100" id="totalSharesInput" placeholder="例如 5000"></div>
+      <div class="field"><label>其中你认作底仓的股数</label><input type="number" step="100" id="baseSharesInput" placeholder="例如 3860"></div>
+      <input type="hidden" id="baselineValueInput">
     </div>
     <div class="todo-sub" style="margin-top:8px; line-height:1.7">
       <b style="color:var(--red)">第一格千万别填"总资产"</b>——杠杆是拿持仓除以它算的。举例:自有 10 万、融资借 5 万、买了 15 万股票,
       那么<b>净资产填 10 万</b>(杠杆 15÷10 = 1.5 倍,正好顶格)。填 15 万的话工具会算成 1.0 倍、告诉你还能继续买,
       实际会加到 2.25 倍。<br>
-      <b>第二格只填股票市值</b>,不含现金也不含加仓那几笔。现金不用单独填——它等于"净资产 − 底仓 − 加仓",工具自己会推。
+      <b>股数直接抄券商</b>:总股数就是持仓页面那个数;底仓填你认作长期不动的那部分,剩下的自动算作加仓。
+      市值和现金都不用你算——工具按最新价自己折算。
     </div>
     <div id="levEchoBox" style="display:none; margin-top:8px; padding:9px 12px; border-radius:8px; font-size:13px"></div>
     <div id="baselineWeightBox" style="display:none; margin-top:4px; padding:10px 12px; background:#10141a; border:1px solid var(--border); border-radius:8px; font-size:13px"></div>
@@ -739,7 +742,7 @@ function scheduleAutoPush() {
 
 async function maybeAutoPullOnLoad() {
   const isEmptyLocal = advState.tranches.length === 0 && advState.sellLog.length === 0
-    && !advState.totalEquity && !advState.baselineValue;
+    && !advState.totalEquity && !advState.baselineValue && !advState.totalShares;
   if (syncConfig.token && syncConfig.gistId && isEmptyLocal) {
     await pullFromGist();
   }
@@ -814,6 +817,8 @@ function applyAdvUIFromState() {
   document.getElementById("advancedModeToggle").checked = !!advState.enabled;
   document.getElementById("totalEquityInput").value = advState.totalEquity ?? "";
   document.getElementById("baselineValueInput").value = advState.baselineValue ?? "";
+  document.getElementById("totalSharesInput").value = advState.totalShares ?? "";
+  document.getElementById("baseSharesInput").value = advState.baseShares ?? "";
   if (typeof renderLevEcho === "function") renderLevEcho();
   renderTranchesTable();
   renderExportView();
@@ -841,7 +846,8 @@ function renderExportView() {
   const lines = [];
   lines.push(`更新时间: ${beijingNowStr()}`);
   lines.push(`账户总净值: ${advState.totalEquity ?? "(未填写)"}`);
-  lines.push(`底仓市值: ${advState.baselineValue ?? "(未填写)"}`);
+  lines.push(`总股数: ${advState.totalShares ?? "(未填写)"}   其中底仓: ${advState.baseShares ?? "(未填写)"} 股`);
+  lines.push(`底仓市值(按最新价折算): ${baseValNow() ? Math.round(baseValNow()) : "(算不出)"}`);
   lines.push(`持仓记录 (${advState.tranches.length}笔):`);
   if (advState.tranches.length === 0) {
     lines.push("  (无)");
@@ -866,7 +872,7 @@ function renderBaselineWeight() {
   const box = document.getElementById("baselineWeightBox");
   if (!box) return;
   const eq = parseFloat(document.getElementById("totalEquityInput").value);
-  const bv = parseFloat(document.getElementById("baselineValueInput").value);
+  const bv = baseValNow();
   if (!eq || !bv || eq <= 0) { box.style.display = "none"; return; }
   box.style.display = "block";
   const TARGET = SP("base_frac", 0.90);
@@ -1534,7 +1540,7 @@ function reconstructActualEquityCurve(stockBars) {
   const bars = stockBars.filter(b => b.date >= startDate);
   if (bars.length === 0) return null;
 
-  const baselineValue = parseFloat(document.getElementById("baselineValueInput").value) || 0;
+  const baselineValue = baseValNow() || 0;
   const totalEquity = parseFloat(document.getElementById("totalEquityInput").value) || 0;
   const latestClose = stockBars[stockBars.length-1].close;
   const baselineShares = baselineValue ? baselineValue / latestClose : 0;
@@ -1674,7 +1680,7 @@ async function renderDashboard() {
 //     right direction for removing an unfair advantage.)
 function currentLeverageIfBuy(newTrancheValue) {
   const totalEquity = parseFloat(document.getElementById("totalEquityInput").value);
-  const baselineValue = parseFloat(document.getElementById("baselineValueInput").value);
+  const baselineValue = baseValNow();
   if (!totalEquity || !baselineValue) return null; // can't check without these inputs
   // Both legs must be marked at the SAME moment. 底仓市值 is a close-dated figure the user typed, so
   // it is re-marked to today's open by the overnight move before being added to tranches that are
@@ -2306,11 +2312,37 @@ document.getElementById("advancedModeToggle").addEventListener("change", (e) => 
 // inputs plus the tranche list, all of which advState already holds and pushToGist already ships.
 // Cash is the plug -- 净资产 − 底仓 − 加仓 -- so a negative number is the margin loan. Showing it is
 // the point: if the derived cash looks nothing like reality, one of the two typed numbers is stale.
+// The broker shows ONE position in 600989 -- there is no "baseline" and "tranche" split in the
+// account. Asking for a 市值 meant the user re-doing that subtraction by hand every time the price
+// moved. Ask for the two share counts instead (both visible in the app, both stable between trades)
+// and derive the value here, at one price, in one place.
+function priceNow() {
+  return currentStockPrevClose || currentStockOpen || null;
+}
+function baseValNow() {
+  const bs = parseFloat(document.getElementById("baseSharesInput")?.value);
+  const px = priceNow();
+  if (bs && px) return bs * px;
+  // legacy state: a 市值 was typed before this form existed
+  const legacy = parseFloat(document.getElementById("baselineValueInput")?.value);
+  return legacy || 0;
+}
+// Shares the broker says are NOT baseline, versus what the tranche table adds up to. A mismatch means
+// the table is stale -- which would silently mis-price every take-profit order, so it is surfaced.
+function trancheShareCheck() {
+  const ts = parseFloat(document.getElementById("totalSharesInput")?.value);
+  const bs = parseFloat(document.getElementById("baseSharesInput")?.value);
+  if (!ts || !bs) return null;
+  const implied = ts - bs;
+  const listed = (advState.tranches || []).reduce((a, t) => a + (+t.shares || 0), 0);
+  return { implied, listed, ok: Math.abs(implied - listed) < 1 };
+}
+
 function renderBalanceSheet() {
   const box = document.getElementById("balanceSheetBox");
   if (!box) return;
   const eq = parseFloat(document.getElementById("totalEquityInput").value);
-  const bv = parseFloat(document.getElementById("baselineValueInput").value);
+  const bv = baseValNow();
   if (!eq || !bv) {
     box.innerHTML = `<div class="todo-sub">填好上面的「净资产」和「底仓股票市值」后,这里会自动出表。</div>`;
     return;
@@ -2380,14 +2412,21 @@ function renderBalanceSheet() {
     <b>已实现盈亏</b> <span style="color:${col(realized)}">${sign(realized)} 元</span>
       (${(advState.sellLog || []).length} 笔卖出,已扣双边手续费 ${(C*100).toFixed(1)}%)<br>
     <span style="color:var(--muted)">计价基准: ${priceNote} · 现金是推算值(净资产 − 底仓 − 加仓),
-      如果和你券商 App 里的数字差很多,说明上面两个输入该更新了</span>
+      如果和你券商 App 里的数字差很多,说明上面的数字该更新了</span>
+    ${(() => {
+      const c = trancheShareCheck();
+      if (!c || c.ok) return "";
+      return `<br><span style="color:var(--amber)">⚠️ 股数对不上:总股数 − 底仓 = ${y(c.implied)} 股,
+        但下面加仓表里只有 ${y(c.listed)} 股。差 ${y(Math.abs(c.implied - c.listed))} 股 ——
+        要么加仓表漏记/多记了,要么底仓股数填错了。加仓表决定止盈挂单价,请先对齐。</span>`;
+    })()}
   </div>`;
 }
 
 function renderLevEcho() {
   const box = document.getElementById("levEchoBox");
   const eq = parseFloat(document.getElementById("totalEquityInput").value);
-  const bv = parseFloat(document.getElementById("baselineValueInput").value);
+  const bv = baseValNow();
   if (!eq || !bv) { box.style.display = "none"; return; }
   const px = currentStockPrevClose || currentStockOpen;
   const trVal = advState.tranches.reduce((s, tr) => s + tr.shares * (px || tr.cost), 0);
@@ -2417,6 +2456,18 @@ document.getElementById("totalEquityInput").addEventListener("input", (e) => {
   renderExportView();
   renderOpenPriceDecision();
 });
+for (const [id, key] of [["totalSharesInput", "totalShares"], ["baseSharesInput", "baseShares"]]) {
+  document.getElementById(id).addEventListener("input", (e) => {
+    advState[key] = e.target.value ? parseFloat(e.target.value) : null;
+    // keep the legacy field in step so anything still reading it, and the CSV, stay correct
+    const px = priceNow();
+    if (advState.baseShares && px) advState.baselineValue = advState.baseShares * px;
+    saveAdvState(advState);
+    renderExportView();
+    renderBaselineWeight();
+    renderOpenPriceDecision();
+  });
+}
 document.getElementById("baselineValueInput").addEventListener("input", (e) => {
   advState.baselineValue = e.target.value ? parseFloat(e.target.value) : null;
   saveAdvState(advState);
