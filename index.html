@@ -884,7 +884,9 @@ function renderBaselineWeight() {
   const w = bv / eq;
   const targetVal = TARGET * eq;
   const gap = targetVal - bv;
-  const trancheVal = advState.tranches.reduce((s,tr) => s + tr.shares*(currentStockPrevClose || tr.cost), 0);
+  // one price, one exposure, page-wide -- this card used 昨收 while the balance sheet used 现价,
+  // so the same account showed two different total exposures a few centimetres apart
+  const trancheVal = Math.max(0, heldValNow() - bv);
   const totalExposure = bv + trancheVal;
   const lev = totalExposure / eq;
   const near = Math.abs(w - TARGET) <= SP("rebalance_band", 0.03);
