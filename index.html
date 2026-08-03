@@ -106,16 +106,16 @@
     <div class="inline-fields">
       <div class="field"><label>净资产(元)= 总资产 − 融资欠款</label><input type="number" id="totalEquityInput" placeholder="例如 100000"></div>
       <div class="field"><label>持有 600989 总股数</label><input type="number" step="100" id="totalSharesInput" placeholder="例如 5000"></div>
-      <div class="field"><label>其中你认作底仓的股数</label><input type="number" step="100" id="baseSharesInput" placeholder="例如 3860"></div>
       <div class="field"><label>融资欠款(元,可选)</label><input type="number" id="marginDebtInput" placeholder="没有就留空"></div>
+      <div class="field"><label>其中你认作底仓的股数</label><input type="number" step="100" id="baseSharesInput" placeholder="留空=自动算"></div>
       <input type="hidden" id="baselineValueInput">
     </div>
     <div class="todo-sub" style="margin-top:8px; line-height:1.7">
       <b style="color:var(--red)">第一格千万别填"总资产"</b>——杠杆是拿持仓除以它算的。举例:自有 10 万、融资借 5 万、买了 15 万股票,
       那么<b>净资产填 10 万</b>(杠杆 15÷10 = 1.5 倍,正好顶格)。填 15 万的话工具会算成 1.0 倍、告诉你还能继续买,
       实际会加到 2.25 倍。<br>
-      <b>股数直接抄券商</b>:总股数就是持仓页面那个数;底仓填你认作长期不动的那部分,剩下的自动算作加仓。
-      市值不用你算——工具按最新价折算。<br>
+      <b>股数直接抄券商</b>:总股数就是持仓页那个数。<b>底仓股数填你认作长期不动的那部分</b>;
+      留空的话就自动按「总股数 − 加仓表里的股数」算。市值不用你算——工具按最新价折算。<br>
       <b>融资欠款可以不填</b>。杠杆和底仓权重只用到「股票市值 ÷ 净资产」,跟你有多少现金、欠多少钱无关。
       填了只是让下面的资产负债表能把「现金」和「负债」分开列——不填就只报一个净额。
     </div>
@@ -202,9 +202,9 @@
   <div class="inline-fields" style="margin-bottom:10px; grid-template-columns:repeat(auto-fit,minmax(90px,auto)); gap:12px;">
     <label class="toggle-row" style="gap:6px"><input type="checkbox" id="benchSz50" style="width:16px;height:16px"><span style="font-size:13px">上证50</span></label>
     <label class="toggle-row" style="gap:6px"><input type="checkbox" id="benchHs300" style="width:16px;height:16px"><span style="font-size:13px">沪深300</span></label>
-    <label class="toggle-row" style="gap:6px"><input type="checkbox" id="benchHldb" style="width:16px;height:16px"><span style="font-size:13px">红利低波</span></label>
+    <label class="toggle-row" style="gap:6px"><input type="checkbox" id="benchHldb" style="width:16px;height:16px"><span style="font-size:13px">红利低波ETF</span></label>
     <label class="toggle-row" style="gap:6px"><input type="checkbox" id="benchCsi1000" style="width:16px;height:16px"><span style="font-size:13px">中证1000</span></label>
-    <label class="toggle-row" style="gap:6px"><input type="checkbox" id="benchCsi2000" style="width:16px;height:16px"><span style="font-size:13px">中证2000</span></label>
+    <label class="toggle-row" style="gap:6px"><input type="checkbox" id="benchCsi2000" style="width:16px;height:16px"><span style="font-size:13px">中证2000ETF</span></label>
     <label class="toggle-row" style="gap:6px"><input type="checkbox" id="benchCyb50" style="width:16px;height:16px"><span style="font-size:13px">创业板50</span></label>
     <label class="toggle-row" style="gap:6px"><input type="checkbox" id="benchKc50" style="width:16px;height:16px"><span style="font-size:13px">科创50</span></label>
   </div>
@@ -267,7 +267,7 @@
   13. <b>熔断的标定(参考策略 + 8%停摆线)是这套东西里最关键、也最不确定的一处。</b>证据方面:把停摆时段的段数和长度照抄、只随机化开始日期,60个种子平均只有 75~81%(与"完全不停摆"的 78.4% 一样),真实信号 184.1% 一个种子都没输过 —— 说明值钱的是<b>时点</b>不是<b>停多久</b>;把软顶调低到同样的日均杠杆则只有 61.8%,差 122pp,说明也不是"少持仓"那么简单;而且 8>5>10>15>20 这个排序在 2020-2026、2020-2025、2020-2024 三个窗口里完全一致。<b>但</b>:这三个窗口是嵌套的不是独立的,而且我一共比较过约 20 组(参考策略×阈值),挑最高的天然有多重比较问题。换个阈值收益就是 96%~184%。请把 184.1% 当作一个区间里的点,不是一个估计值。<br>
   14. "实际组合"收益曲线只能从你第一笔记录的日期开始重建,更早的历史算不出来。现在四类记录都带完整的买入价/卖出价("老仓位止盈"、"上方卖单平加仓"、"双边当日了结"、手工补录),所以都能进曲线;<b>旧版本里那种只有卖价没有买价的"双边卖出"记录会被曲线忽略</b>,如果你有历史遗留的这类记录,请去表格里补上买入价。<br>
   15. CSV导入是"追加"到现有记录,不会自动去重或覆盖——如果同一批记录导入了两次,会变成两份重复的,需要自己去表格里手动删掉多余的。<br>
-  16. 红利低波、中证2000这两个指数数据来自东方财富,上证50、沪深300、中证1000、创业板50、科创50数据来自新浪,两边接口都可能偶尔限流或延迟,某条基准曲线加载不出来时过几分钟重试即可,不影响其余曲线。<br>
+  16. <b>七条基准曲线全部来自新浪的 JSONP 接口。</b>原先红利低波和中证2000走东方财富的 push2his,实测那个域名从网页里根本连不上(script onerror),而能连上的 push2delay 只有实时、没有历史(连上证50都返回0条),所以这两条改用跟踪它们的 ETF:红利低波=512890、中证2000=563300。<b>七条曲线和 600989 长持线一样都是价格序列、不含分红再投</b>——红利策略的分红大约每年 4~5%,这部分在图上不会体现,所以图里的红利低波是被低估的。新浪接口偶尔限流,某条加载不出来过几分钟重试即可。<br>
   17. 历史行情数据会缓存在本地(localStorage),同一天内重复打开页面基本不会重新下载;但期货数据接口不支持按日期增量拉取,缓存过期后仍需完整重新下载一次,不算严重但也不是完全的"增量"。<br>
   18. "每天最多3笔"这个上限统计三类减仓:老仓位止盈、上方卖单平掉加仓、双边当日了结,不含底仓再平衡。极端行情下多笔仓位同时达标也只处理前3笔(最老优先),其余留到以后,这段时间杠杆会比"立刻全清"更高,是有意的权衡而非bug。<br>
   22. <b>熔断只挡"新买入",从不挡卖出。</b>停摆期间:上方卖单(平掉一笔加仓)照挂、老仓位的成本×1.05止盈照挂,只有双边的买单不挂。这样才保证你在"策略过热"的判定下随时还能减仓 —— 回测里"停摆期连卖出也停"看着还高12pp,但那是把自己锁在高杠杆上,属于风控原则问题,不按单条历史路径的收益来定。<br>
@@ -437,13 +437,13 @@ async function fetchIndexHistoryEM(secid, cacheKey, labelForErrors) {
 const BENCHMARK_FETCHERS = {
   sz50: () => fetchIndexHistorySina("sh000016", "idx_sh000016", "_SZ50_HIST"),
   hs300: () => fetchIndexHistorySina("sh000300", "idx_sh000300", "_HS300_HIST"),
-  hldb: () => fetchIndexHistoryEM("2.H30269", "idx_H30269", "红利低波指数"),
+  hldb: () => fetchIndexHistorySina("sh512890", "idx_512890", "_HLDB_HIST"),
   csi1000: () => fetchIndexHistorySina("sh000852", "idx_sh000852", "_CSI1000_HIST"),
-  csi2000: () => fetchIndexHistoryEM("2.932000", "idx_932000", "中证2000指数"),
+  csi2000: () => fetchIndexHistorySina("sh563300", "idx_563300", "_CSI2000_HIST"),
   cyb50: () => fetchIndexHistorySina("sz399673", "idx_sz399673", "_CYB50_HIST"),
   kc50: () => fetchIndexHistorySina("sh000688", "idx_sh000688", "_KC50_HIST"),
 };
-const BENCHMARK_LABELS = { sz50: "上证50", hs300: "沪深300", hldb: "红利低波", csi1000: "中证1000", csi2000: "中证2000", cyb50: "创业板50", kc50: "科创50" };
+const BENCHMARK_LABELS = { sz50: "上证50", hs300: "沪深300", hldb: "红利低波ETF", csi1000: "中证1000", csi2000: "中证2000ETF", cyb50: "创业板50", kc50: "科创50" };
 
 // Sina's hq.sinajs.cn checks Referer and returns 403 for any non-sina.com.cn page, so it cannot be
 // used from a standalone page. Eastmoney's push2delay quote endpoint has no such restriction and even
@@ -632,7 +632,7 @@ function saveAdvState(state) {
 }
 let advState = loadAdvState();
 if (!advState.sellLog) advState.sellLog = []; // back-compat for state saved before this field existed
-if (!advState.benchmarks) advState.benchmarks = { sz50: false, hs300: false, hldb: false };
+if (!advState.benchmarks) advState.benchmarks = {};
 
 // ---------------- cloud sync (optional, via a private GitHub Gist) ----------------
 // Only advState (net worth / baseline value / tranches / sellLog) is synced -- never the market-data
@@ -724,7 +724,7 @@ async function pullFromGist() {
     const remote = JSON.parse(file.content);
     advState = remote;
     if (!advState.sellLog) advState.sellLog = [];
-    if (!advState.benchmarks) advState.benchmarks = { sz50: false, hs300: false, hldb: false };
+    if (!advState.benchmarks) advState.benchmarks = {};
     localStorage.setItem(ADV_KEY, JSON.stringify(advState)); // bypass saveAdvState here to avoid an immediate auto-push-back
     syncConfig.lastPull = new Date().toISOString();
     saveSyncConfig(syncConfig);
@@ -821,6 +821,7 @@ function applyAdvUIFromState() {
   document.getElementById("advancedModeToggle").checked = !!advState.enabled;
   document.getElementById("totalEquityInput").value = advState.totalEquity ?? "";
   document.getElementById("baselineValueInput").value = advState.baselineValue ?? "";
+  if (typeof applyBenchmarkChecks === "function") applyBenchmarkChecks();
   document.getElementById("totalSharesInput").value = advState.totalShares ?? "";
   document.getElementById("baseSharesInput").value = advState.baseShares ?? "";
   document.getElementById("marginDebtInput").value = advState.marginDebt ?? "";
@@ -846,12 +847,14 @@ function renderExportView() {
   // never go stale behind an edit that forgot to refresh them
   if (typeof renderLevEcho === "function") renderLevEcho();
   if (typeof renderBalanceSheet === "function") renderBalanceSheet();
+  // baseline is now derived from the tranche table, so adding/removing a lot changes it too
+  if (typeof renderBaselineWeight === "function") renderBaselineWeight();
   const el = document.getElementById("exportView");
   if (!el) return;
   const lines = [];
   lines.push(`更新时间: ${beijingNowStr()}`);
   lines.push(`账户总净值: ${advState.totalEquity ?? "(未填写)"}`);
-  lines.push(`总股数: ${advState.totalShares ?? "(未填写)"}   其中底仓: ${advState.baseShares ?? "(未填写)"} 股`);
+  lines.push(`总股数: ${advState.totalShares ?? "(未填写)"}   底仓(自动): ${baseSharesNow() ?? "(算不出)"} 股   融资欠款: ${advState.marginDebt ?? "(未填)"}`);
   lines.push(`底仓市值(按最新价折算): ${baseValNow() ? Math.round(baseValNow()) : "(算不出)"}`);
   lines.push(`持仓记录 (${advState.tranches.length}笔):`);
   if (advState.tranches.length === 0) {
@@ -1643,9 +1646,10 @@ async function renderDashboard() {
       refLines: [{ value:1.5, color:"var(--red)", label:"软顶1.5" }] });
 
     const actualMap = new Map(series.map(p => [p.date, (p.value/startVal-1)*100]));
-    const barsInRange = stockBars.filter(b => b.date >= startDate);
-    const stockStartClose = barsInRange[0].close;
-    const holdMap = new Map(barsInRange.map(b => [b.date, (b.close/stockStartClose-1)*100]));
+    const atOrAfter = stockBars.filter(b => b.date >= startDate);
+    const stockStartClose = atOrAfter[0].close;
+    // rebased at startDate but NOT trimmed to it -- the line spans whatever range is on screen
+    const holdMap = new Map(stockBars.map(b => [b.date, (b.close/stockStartClose-1)*100]));
     // cumulative excess return SINCE DAY 1 of your actual records (not a rolling window like panel 2) --
     // just the actual-vs-hold gap, exposed as its own line instead of making you eyeball it
     const excessMap = new Map();
@@ -1666,11 +1670,14 @@ async function renderDashboard() {
         const firstBar = bench.find(b => b.date >= startDate);
         if (!firstBar) continue;
         const bmap = new Map();
-        bench.forEach(b => { if (b.date >= startDate) bmap.set(b.date, (b.close/firstBar.close-1)*100); });
+        bench.forEach(b => bmap.set(b.date, (b.close/firstBar.close-1)*100));   // full range, same zero
         panel4Lines.push({ label: BENCHMARK_LABELS[key], color: BENCHMARK_COLORS[key], map: bmap });
       } catch (e) { console.warn("benchmark fetch failed", key, e); }
     }
-    panels.push({ title: "累计收益对比(%,从第一笔记录起累计,非滚动窗口)", lines: panel4Lines });
+    panels.push({ title: `累计收益对比(%,零点=你的第一笔记录 ${startDate},竖线标出;`
+                          + `基准线画满所选区间,零点左边是它们此前的走势)`,
+                  lines: panel4Lines,
+                  markers: [{ date: startDate, type: "RESUME" }] });
   }
 
   renderStackedCharts("dashboardContainer", dates, panels);
@@ -2337,23 +2344,40 @@ function heldValNow() {
   const legacy = parseFloat(document.getElementById("baselineValueInput")?.value) || 0;
   return legacy + (advState.tranches || []).reduce((a, t) => a + (+t.shares || 0) * (px || t.cost), 0);
 }
+// Baseline is DERIVED, not declared. Asking the user to split 48,200 shares into "baseline" and
+// "adds" meant reconstructing months of history they never recorded -- and any number they guessed
+// would silently contradict the tranche table. The rule that needs no archaeology: the table lists
+// what is actively managed (it has to, since per-lot cost sets the take-profit price); everything
+// else is baseline by definition. Now the two can never disagree.
+function baseSharesNow() {
+  // What the user typed wins -- "baseline" is their own designation and the tranche table is not
+  // complete enough to infer it. Left blank it falls back to 总股数 − 表内股数, which is at least
+  // always self-consistent.
+  const typed = parseFloat(document.getElementById("baseSharesInput")?.value);
+  if (typed || typed === 0) return typed;
+  const ts = parseFloat(document.getElementById("totalSharesInput")?.value);
+  if (!ts) return null;
+  const listed = (advState.tranches || []).reduce((a, t) => a + (+t.shares || 0), 0);
+  return Math.max(0, ts - listed);
+}
 function baseValNow() {
-  const bs = parseFloat(document.getElementById("baseSharesInput")?.value);
+  const bs = baseSharesNow();
   const px = priceNow();
-  if (bs && px) return bs * px;
+  if (bs != null && px) return bs * px;
   // legacy state: a 市值 was typed before this form existed
   const legacy = parseFloat(document.getElementById("baselineValueInput")?.value);
   return legacy || 0;
 }
-// Shares the broker says are NOT baseline, versus what the tranche table adds up to. A mismatch means
-// the table is stale -- which would silently mis-price every take-profit order, so it is surfaced.
+// Kept only so the sheet can say when the table claims MORE shares than the broker holds -- the one
+// inconsistency the derived split cannot absorb.
 function trancheShareCheck() {
   const ts = parseFloat(document.getElementById("totalSharesInput")?.value);
-  const bs = parseFloat(document.getElementById("baseSharesInput")?.value);
-  if (!ts || !bs) return null;
-  const implied = ts - bs;
+  if (!ts) return null;
   const listed = (advState.tranches || []).reduce((a, t) => a + (+t.shares || 0), 0);
-  return { implied, listed, ok: Math.abs(implied - listed) < 1 };
+  if (listed > ts) return { kind: "over", implied: ts, listed, ok: false };
+  const typed = parseFloat(document.getElementById("baseSharesInput")?.value);
+  if (!typed && typed !== 0) return { kind: "derived", ok: true };   // blank -> cannot disagree
+  return { kind: "split", implied: ts - typed, listed, ok: Math.abs((ts - typed) - listed) < 1 };
 }
 
 function renderBalanceSheet() {
@@ -2361,8 +2385,10 @@ function renderBalanceSheet() {
   if (!box) return;
   const eq = parseFloat(document.getElementById("totalEquityInput").value);
   const bv = baseValNow();
-  if (!eq || !bv) {
-    box.innerHTML = `<div class="todo-sub">填好上面的「净资产」「总股数」「底仓股数」后,这里会自动出表。</div>`;
+  const haveStock = !!parseFloat(document.getElementById("totalSharesInput")?.value)
+                 || !!parseFloat(document.getElementById("baselineValueInput")?.value);
+  if (!eq || !haveStock) {
+    box.innerHTML = `<div class="todo-sub">填好上面的「净资产」和「总股数」后,这里会自动出表。</div>`;
     return;
   }
   const px = priceNow();
@@ -2371,7 +2397,9 @@ function renderBalanceSheet() {
                   : (currentStockPrevClose ? `昨收 ${currentStockPrevClose.toFixed(2)}` : "无实时价,按成本价估"));
   const trs = advState.tranches || [];
   const ts = parseFloat(document.getElementById("totalSharesInput")?.value) || 0;
-  const bsh = parseFloat(document.getElementById("baseSharesInput")?.value) || 0;
+  const bsh = baseSharesNow() ?? 0;
+  const baseTypedRaw = document.getElementById("baseSharesInput")?.value;
+  const baseTyped = baseTypedRaw !== "" && baseTypedRaw != null;
   const held = heldValNow();
   const trVal = Math.max(0, held - bv);       // 总持仓 − 底仓, by definition
   const debtRaw = document.getElementById("marginDebtInput")?.value;
@@ -2381,10 +2409,8 @@ function renderBalanceSheet() {
   // Without a debt figure this collapses to a single net number, which is all that can honestly be said.
   const other = eq + debt - held;
   const sign0 = v => (v < 0 ? "−" : "") + y(Math.abs(v));
-  const trShares = ts && bsh ? ts - bsh : trs.reduce((a, t) => a + (+t.shares || 0), 0);
-  // Cost basis is only known for the lots actually recorded, so the floating P&L below is stated for
-  // those lots only -- saying otherwise would invent a cost for shares whose price was never entered.
-  const listedShares = trs.reduce((a, t) => a + (+t.shares || 0), 0);
+  const trShares = trs.reduce((a, t) => a + (+t.shares || 0), 0);
+  const listedShares = trShares;
   const trCost = trs.reduce((s, t) => s + t.shares * t.cost, 0);
   const trPnl = listedShares && px ? listedShares * px - trCost : 0;
   const lev = held / eq;
@@ -2412,8 +2438,10 @@ function renderBalanceSheet() {
     <div style="background:#10141a; border:1px solid var(--border); border-radius:8px; padding:11px 13px">
       <div style="font-weight:600; margin-bottom:7px">资产</div>
       <table style="width:100%; font-size:13px">
-        <tr><td>底仓股票</td><td style="text-align:right">${y(bv)}</td></tr>
-        <tr><td>加仓股票(${y(trShares)} 股${listedShares !== trShares ? `,表里只记了 ${y(listedShares)} 股` : `,${trs.length} 笔`})</td><td style="text-align:right">${y(trVal)}</td></tr>
+        <tr><td>底仓股票${!ts ? "" : (baseTyped ? `(${y(bsh)} 股,你填的)`
+              : `(${y(bsh)} 股 = 总 ${y(ts)} − 加仓 ${y(trShares)})`)}</td>
+            <td style="text-align:right">${y(bv)}</td></tr>
+        <tr><td>加仓股票(${y(trShares)} 股,${trs.length} 笔)</td><td style="text-align:right">${y(trVal)}</td></tr>
         <tr><td>${debtKnown ? "现金及其他资产" : "其他(现金+其他资产−负债 的净额)"}</td>
             <td style="text-align:right; color:${other < 0 ? "var(--red)" : "inherit"}">${sign0(other)}</td></tr>
         <tr style="border-top:1px solid var(--border); font-weight:600">
@@ -2444,8 +2472,8 @@ function renderBalanceSheet() {
       (软顶 ${cap})<br>
     <b>底仓权重</b> ${(baseW*100).toFixed(1)}%(目标 ${(base*100).toFixed(0)}%)—— ${baseMsg}<br>
     <b>加仓浮动盈亏</b> <span style="color:${col(trPnl)}">${sign(trPnl)} 元</span>
-      ${listedShares ? `(仅限表里记了成本的 ${y(listedShares)} 股:成本 ${y(trCost)} → 市值 ${y(listedShares*px)}${trCost ? `,${(trPnl/trCost*100).toFixed(2)}%` : ""})`
-                     : "(加仓表是空的,算不出)"}<br>
+      ${listedShares ? `(${y(listedShares)} 股:成本 ${y(trCost)} → 市值 ${y(listedShares*px)}${trCost ? `,${(trPnl/trCost*100).toFixed(2)}%` : ""})`
+                     : "(加仓表是空的——全部算底仓)"}<br>
     <b>已实现盈亏</b> <span style="color:${col(realized)}">${sign(realized)} 元</span>
       (${(advState.sellLog || []).length} 笔卖出,已扣双边手续费 ${(C*100).toFixed(1)}%)<br>
     <span style="color:var(--muted)">计价基准: ${priceNote} · 只有「股票总市值」是按你填的股数×现价算出来的;
@@ -2453,9 +2481,14 @@ function renderBalanceSheet() {
     ${(() => {
       const c = trancheShareCheck();
       if (!c || c.ok) return "";
-      return `<br><span style="color:var(--amber)">⚠️ 股数对不上:总股数 − 底仓 = ${y(c.implied)} 股,
-        但下面加仓表里只有 ${y(c.listed)} 股。差 ${y(Math.abs(c.implied - c.listed))} 股 ——
-        要么加仓表漏记/多记了,要么底仓股数填错了。加仓表决定止盈挂单价,请先对齐。</span>`;
+      if (c.kind === "over") {
+        return `<br><span style="color:var(--red)">⚠️ 加仓表里记了 ${y(c.listed)} 股,超过你持有的
+          ${y(c.implied)} 股 —— 表里有多记的,请删掉已经卖掉的那几笔。</span>`;
+      }
+      return `<br><span style="color:var(--amber)">提示:总股数 − 底仓 = ${y(c.implied)} 股,
+        加仓表里是 ${y(c.listed)} 股,差 ${y(Math.abs(c.implied - c.listed))} 股。
+        不影响杠杆(它按总股数算);只是这 ${y(Math.abs(c.implied - c.listed))} 股没有成本记录,
+        所以不会提醒你给它们挂止盈单。想省事就把「底仓股数」清空,让它自动算。</span>`;
     })()}
   </div>`;
 }
@@ -2464,7 +2497,10 @@ function renderLevEcho() {
   const box = document.getElementById("levEchoBox");
   const eq = parseFloat(document.getElementById("totalEquityInput").value);
   const bv = baseValNow();
-  if (!eq || !bv) { box.style.display = "none"; return; }
+  // bv can legitimately be 0 (every share recorded as a tranche); gate on whether ANY stock is known
+  const anyStock = !!parseFloat(document.getElementById("totalSharesInput")?.value)
+                || !!parseFloat(document.getElementById("baselineValueInput")?.value);
+  if (!eq || !anyStock) { box.style.display = "none"; return; }
   const px = priceNow();
   const held = heldValNow();                 // 总股数 × 现价 -- the broker's number, not the table's
   const trVal = Math.max(0, held - bv);      // whatever is not baseline is leveraged exposure
@@ -2500,7 +2536,7 @@ for (const [id, key] of [["totalSharesInput", "totalShares"], ["baseSharesInput"
     advState[key] = e.target.value ? parseFloat(e.target.value) : null;
     // keep the legacy field in step so anything still reading it, and the CSV, stay correct
     const px = priceNow();
-    if (advState.baseShares && px) advState.baselineValue = advState.baseShares * px;
+    if (px) advState.baselineValue = baseValNow() || null;
     saveAdvState(advState);
     renderExportView();
     renderBaselineWeight();
@@ -2549,9 +2585,20 @@ document.getElementById("importCsvInput").addEventListener("change", async (e) =
   document.getElementById("statusMsg").className = "status ok";
   e.target.value = "";
 });
-Object.values(BENCHMARK_CHECK_IDS).forEach(id => {
-  document.getElementById(id).addEventListener("change", () => renderDashboard());
-});
+for (const [key, id] of Object.entries(BENCHMARK_CHECK_IDS)) {
+  document.getElementById(id).addEventListener("change", (e) => {
+    advState.benchmarks[key] = e.target.checked;   // persist + sync, not just redraw
+    saveAdvState(advState);
+    renderDashboard();
+  });
+}
+// restore the ticks from saved/pulled state
+function applyBenchmarkChecks() {
+  for (const [key, id] of Object.entries(BENCHMARK_CHECK_IDS)) {
+    const cb = document.getElementById(id);
+    if (cb) cb.checked = !!(advState.benchmarks || {})[key];
+  }
+}
 document.querySelectorAll(".range-btn").forEach(btn => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".range-btn").forEach(b => b.classList.remove("active"));
