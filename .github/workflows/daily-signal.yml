@@ -11,9 +11,19 @@ name: 每日开盘信号
 #
 # cron is always UTC. 01:12 UTC = 09:12 Beijing, which is after the 09:00 commodity open (so the gate
 # is computable) and a few minutes before the 09:25 auction close (so the poll has room).
+#
+# WHY FOUR TIMES INSTEAD OF ONE
+# On 2026-08-03 the 01:12 schedule did not fire at all -- no run, no failure, nothing in the history.
+# That is documented GitHub behaviour, not a bug here: scheduled workflows are best-effort, get
+# delayed under load, and are dropped outright often enough that a single daily trigger is not a
+# delivery mechanism. So four triggers spread across the morning, with a dedupe step that skips if an
+# earlier run today already sent. Redundant triggers are free; a missed morning is not.
 on:
   schedule:
     - cron: "12 1 * * 1-5"       # 09:12 Beijing, Mon-Fri
+    - cron: "27 1 * * 1-5"       # 09:27  right after the auction
+    - cron: "50 1 * * 1-5"       # 09:50
+    - cron: "30 2 * * 1-5"       # 10:30  last resort
   workflow_dispatch:              # manual run, for testing
     inputs:
       force:
@@ -24,6 +34,10 @@ on:
 concurrency:
   group: daily-signal
   cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read                   # needed to see whether an earlier run today already sent
 
 jobs:
   signal:
@@ -83,8 +97,70 @@ jobs:
           print(f"::notice::{today} 开市={open_today}")
           PY
 
-      - name: 生成并发送
+      # With four triggers a day, the second one through must not send a second copy. Ask the API
+      # whether any earlier run today got its send step to success. FAIL-OPEN on any error: a
+      # duplicate email is a nuisance, a silently skipped one is the whole problem being fixed.
+      - name: 今天是否已经发过
+        id: dedupe
         if: steps.gate.outputs.trading == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys, urllib.request, datetime
+
+          LAST = {"d": ""}
+
+          def out(v, why):
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write(f"already={v}\n")
+                  f.write(f"last_sent={LAST['d']}\n")
+              print(f"::notice::{why}")
+              sys.exit(0)
+
+          if os.environ.get("FORCE") == "true":
+              out("false", "强制发送:不做重复检查")
+
+          def api(path):
+              r = urllib.request.Request("https://api.github.com" + path, headers={
+                  "Authorization": "Bearer " + os.environ["GH_TOKEN"],
+                  "Accept": "application/vnd.github+json", "User-Agent": "daily-signal"})
+              return json.loads(urllib.request.urlopen(r, timeout=25).read())
+
+          repo, me = os.environ["REPO"], int(os.environ["RUN_ID"])
+          today = (datetime.datetime.now(datetime.timezone.utc)
+                   + datetime.timedelta(hours=8)).strftime("%Y-%m-%d")
+          # Two things are learned from one pass over the history: whether TODAY is already done
+          # (dedupe), and when the last successful send was (miss detection). A morning that produces
+          # no email at all is invisible unless the next one says so, and with schedules that GitHub
+          # documents as droppable, that gap has to be reported rather than assumed away.
+          try:
+              runs = api(f"/repos/{repo}/actions/workflows/daily-signal.yml/runs?per_page=60")
+              for run in sorted(runs.get("workflow_runs", []),
+                                key=lambda r: r["created_at"], reverse=True):
+                  if run["id"] == me or run["conclusion"] != "success":
+                      continue
+                  started = (datetime.datetime.strptime(run["created_at"], "%Y-%m-%dT%H:%M:%SZ")
+                             + datetime.timedelta(hours=8)).strftime("%Y-%m-%d")
+                  sent = any(st["name"] == "生成并发送" and st.get("conclusion") == "success"
+                             for job in api(f"/repos/{repo}/actions/runs/{run['id']}/jobs").get("jobs", [])
+                             for st in job.get("steps", []))
+                  if not sent:
+                      continue
+                  if not LAST["d"] or started > LAST["d"]:
+                      LAST["d"] = started
+                  if started == today:
+                      out("true", f"今天 {run['id']} 已经发过了({run['created_at']}),本次跳过")
+          except Exception as e:
+              out("false", f"重复检查失败,按未发送处理(宁可重复也不能漏): {e}")
+          out("false", f"{today} 今天还没发过,继续(上次成功发送 {LAST['d'] or '无记录'})")
+          PY
+
+      - name: 生成并发送
+        if: steps.gate.outputs.trading == 'true' && steps.dedupe.outputs.already != 'true'
         working-directory: signal
         env:
           # Set these as repository secrets. They are never read from the repo, never logged, and
@@ -94,9 +170,14 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
+          LAST_SENT: ${{ steps.dedupe.outputs.last_sent }}
           POSITIONS_GIST_RAW_URL: ${{ secrets.POSITIONS_GIST_RAW_URL }}
         run: python3 daily_signal.py --wait-open --send
 
       - name: 跳过说明
         if: steps.gate.outputs.trading != 'true'
         run: echo "今天没有商品日盘开盘,判定为休市,不发信。"
+
+      - name: 已发过说明
+        if: steps.gate.outputs.trading == 'true' && steps.dedupe.outputs.already == 'true'
+        run: echo "今天更早的一次运行已经把邮件发出去了,本次不重复发送。"
