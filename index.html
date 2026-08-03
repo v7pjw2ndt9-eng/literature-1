@@ -107,6 +107,7 @@
       <div class="field"><label>净资产(元)= 总资产 − 融资欠款</label><input type="number" id="totalEquityInput" placeholder="例如 100000"></div>
       <div class="field"><label>持有 600989 总股数</label><input type="number" step="100" id="totalSharesInput" placeholder="例如 5000"></div>
       <div class="field"><label>其中你认作底仓的股数</label><input type="number" step="100" id="baseSharesInput" placeholder="例如 3860"></div>
+      <div class="field"><label>融资欠款(元,可选)</label><input type="number" id="marginDebtInput" placeholder="没有就留空"></div>
       <input type="hidden" id="baselineValueInput">
     </div>
     <div class="todo-sub" style="margin-top:8px; line-height:1.7">
@@ -114,7 +115,9 @@
       那么<b>净资产填 10 万</b>(杠杆 15÷10 = 1.5 倍,正好顶格)。填 15 万的话工具会算成 1.0 倍、告诉你还能继续买,
       实际会加到 2.25 倍。<br>
       <b>股数直接抄券商</b>:总股数就是持仓页面那个数;底仓填你认作长期不动的那部分,剩下的自动算作加仓。
-      市值和现金都不用你算——工具按最新价自己折算。
+      市值不用你算——工具按最新价折算。<br>
+      <b>融资欠款可以不填</b>。杠杆和底仓权重只用到「股票市值 ÷ 净资产」,跟你有多少现金、欠多少钱无关。
+      填了只是让下面的资产负债表能把「现金」和「负债」分开列——不填就只报一个净额。
     </div>
     <div id="levEchoBox" style="display:none; margin-top:8px; padding:9px 12px; border-radius:8px; font-size:13px"></div>
     <div id="baselineWeightBox" style="display:none; margin-top:4px; padding:10px 12px; background:#10141a; border:1px solid var(--border); border-radius:8px; font-size:13px"></div>
@@ -590,6 +593,7 @@ let currentProb = null;
 let currentFeatVals = null;
 let currentStockOpen = null;   // 600989's own actual open price, only known after 9:25 call auction
 let currentStockPrevClose = null;
+let currentStockLast = null;   // live price (f43), the right mark for a balance sheet
 let advBreakerState = null;    // {stopped, trailingExcess, lastTransitionDate, lastTransitionType}
 let cachedForAdv = null;       // {stockBars, futuresBars, model, mu, sd, warmup} -- cached after each fetch so
                                 // the breaker signal can be recomputed when sliders change without refetching
@@ -819,6 +823,7 @@ function applyAdvUIFromState() {
   document.getElementById("baselineValueInput").value = advState.baselineValue ?? "";
   document.getElementById("totalSharesInput").value = advState.totalShares ?? "";
   document.getElementById("baseSharesInput").value = advState.baseShares ?? "";
+  document.getElementById("marginDebtInput").value = advState.marginDebt ?? "";
   if (typeof renderLevEcho === "function") renderLevEcho();
   renderTranchesTable();
   renderExportView();
@@ -2114,6 +2119,7 @@ async function runPipeline() {
     // stock's own open (f46) is 0/unset before the 9:15-9:25 call auction concludes; only trust positive values
     currentStockOpen = (stockRtOpen && stockRtOpen > 0) ? stockRtOpen : null;
     currentStockPrevClose = stockRtPrevClose;
+    currentStockLast = (stockRtCurrent && stockRtCurrent > 0) ? stockRtCurrent : null;
     cachedForAdv = { stockBars: stockBars.slice(0, nAll), futuresBars, model, mu, sd, warmup: WARMUP };
 
     if (document.getElementById("advancedModeToggle").checked) {
@@ -2317,7 +2323,17 @@ document.getElementById("advancedModeToggle").addEventListener("change", (e) => 
 // moved. Ask for the two share counts instead (both visible in the app, both stable between trades)
 // and derive the value here, at one price, in one place.
 function priceNow() {
-  return currentStockPrevClose || currentStockOpen || null;
+  return currentStockLast || currentStockOpen || currentStockPrevClose || null;
+}
+// Total stock held, marked at the current price. Authoritative: it comes from the broker, not from
+// the hand-kept tranche table, so unrecorded lots cannot make the account look less levered than it is.
+function heldValNow() {
+  const ts = parseFloat(document.getElementById("totalSharesInput")?.value);
+  const px = priceNow();
+  if (ts && px) return ts * px;
+  // legacy state: only 市值 was ever typed, plus whatever the table lists
+  const legacy = parseFloat(document.getElementById("baselineValueInput")?.value) || 0;
+  return legacy + (advState.tranches || []).reduce((a, t) => a + (+t.shares || 0) * (px || t.cost), 0);
 }
 function baseValNow() {
   const bs = parseFloat(document.getElementById("baseSharesInput")?.value);
@@ -2344,21 +2360,31 @@ function renderBalanceSheet() {
   const eq = parseFloat(document.getElementById("totalEquityInput").value);
   const bv = baseValNow();
   if (!eq || !bv) {
-    box.innerHTML = `<div class="todo-sub">填好上面的「净资产」和「底仓股票市值」后,这里会自动出表。</div>`;
+    box.innerHTML = `<div class="todo-sub">填好上面的「净资产」「总股数」「底仓股数」后,这里会自动出表。</div>`;
     return;
   }
-  const px = currentStockPrevClose || currentStockOpen;
-  const priceNote = currentStockOpen ? `今开 ${currentStockOpen.toFixed(2)}`
-                  : (currentStockPrevClose ? `昨收 ${currentStockPrevClose.toFixed(2)}` : "无实时价,按成本价估");
+  const px = priceNow();
+  const priceNote = currentStockLast ? `现价 ${currentStockLast.toFixed(2)}`
+                  : (currentStockOpen ? `今开 ${currentStockOpen.toFixed(2)}`
+                  : (currentStockPrevClose ? `昨收 ${currentStockPrevClose.toFixed(2)}` : "无实时价,按成本价估"));
   const trs = advState.tranches || [];
-  const trVal = trs.reduce((s, t) => s + t.shares * (px || t.cost), 0);
+  const ts = parseFloat(document.getElementById("totalSharesInput")?.value) || 0;
+  const bsh = parseFloat(document.getElementById("baseSharesInput")?.value) || 0;
+  const held = heldValNow();
+  const trVal = Math.max(0, held - bv);       // 总持仓 − 底仓, by definition
+  const debtRaw = document.getElementById("marginDebtInput")?.value;
+  const debtKnown = debtRaw !== "" && debtRaw != null && isFinite(parseFloat(debtRaw));
+  const debt = debtKnown ? Math.abs(parseFloat(debtRaw)) : 0;
+  // 净资产 = 股票 + 其他资产 − 负债  =>  其他资产 = 净资产 + 负债 − 股票
+  // Without a debt figure this collapses to a single net number, which is all that can honestly be said.
+  const other = eq + debt - held;
+  const sign0 = v => (v < 0 ? "−" : "") + y(Math.abs(v));
+  const trShares = ts && bsh ? ts - bsh : trs.reduce((a, t) => a + (+t.shares || 0), 0);
+  // Cost basis is only known for the lots actually recorded, so the floating P&L below is stated for
+  // those lots only -- saying otherwise would invent a cost for shares whose price was never entered.
+  const listedShares = trs.reduce((a, t) => a + (+t.shares || 0), 0);
   const trCost = trs.reduce((s, t) => s + t.shares * t.cost, 0);
-  const trPnl = trVal - trCost;
-  const held = bv + trVal;
-  const cash = eq - held;
-  const debt = cash < 0 ? -cash : 0;
-  const freeCash = cash > 0 ? cash : 0;
-  const assets = held + freeCash;
+  const trPnl = listedShares && px ? listedShares * px - trCost : 0;
   const lev = held / eq;
   const cap = SP("lev_cap", 1.5), base = SP("base_frac", 0.9), band = SP("rebalance_band", 0.03);
   const C = SP("cost_leg", 0.001);
@@ -2385,34 +2411,43 @@ function renderBalanceSheet() {
       <div style="font-weight:600; margin-bottom:7px">资产</div>
       <table style="width:100%; font-size:13px">
         <tr><td>底仓股票</td><td style="text-align:right">${y(bv)}</td></tr>
-        <tr><td>加仓股票(${trs.length} 笔)</td><td style="text-align:right">${y(trVal)}</td></tr>
-        <tr><td>现金</td><td style="text-align:right">${y(freeCash)}</td></tr>
+        <tr><td>加仓股票(${y(trShares)} 股${listedShares !== trShares ? `,表里只记了 ${y(listedShares)} 股` : `,${trs.length} 笔`})</td><td style="text-align:right">${y(trVal)}</td></tr>
+        <tr><td>${debtKnown ? "现金及其他资产" : "其他(现金+其他资产−负债 的净额)"}</td>
+            <td style="text-align:right; color:${other < 0 ? "var(--red)" : "inherit"}">${sign0(other)}</td></tr>
         <tr style="border-top:1px solid var(--border); font-weight:600">
-          <td>资产合计</td><td style="text-align:right">${y(assets)}</td></tr>
+          <td>资产合计</td><td style="text-align:right">${debtKnown ? y(held + other) : "—"}</td></tr>
       </table>
+      ${other < 0 && debtKnown ? `<div style="color:var(--amber); font-size:12px; margin-top:6px">
+        资产不该是负数——净资产、总股数、融资欠款三个数里至少有一个填错或过期了</div>` : ""}
     </div>
     <div style="background:#10141a; border:1px solid var(--border); border-radius:8px; padding:11px 13px">
       <div style="font-weight:600; margin-bottom:7px">负债 与 净资产</div>
       <table style="width:100%; font-size:13px">
-        <tr><td>融资欠款</td><td style="text-align:right; color:${debt ? "var(--red)" : "inherit"}">${y(debt)}</td></tr>
+        <tr><td>融资欠款</td><td style="text-align:right; color:${debtKnown && debt ? "var(--red)" : "var(--muted)"}">
+          ${debtKnown ? y(debt) : "未填"}</td></tr>
         <tr><td style="color:var(--muted)">&nbsp;</td><td></td></tr>
         <tr><td>净资产(你自己的钱)</td><td style="text-align:right">${y(eq)}</td></tr>
         <tr style="border-top:1px solid var(--border); font-weight:600">
-          <td>合计</td><td style="text-align:right">${y(debt + eq)}</td></tr>
+          <td>合计</td><td style="text-align:right">${debtKnown ? y(debt + eq) : "—"}</td></tr>
       </table>
+      ${debtKnown ? "" : `<div style="color:var(--muted); font-size:12px; margin-top:6px">
+        填了「融资欠款」才能把现金和负债分开列。不填不影响杠杆和底仓权重。</div>`}
     </div>
   </div>
   <div style="background:#10141a; border:1px solid var(--border); border-radius:8px; padding:11px 13px; margin-top:12px; font-size:13px; line-height:1.85">
+    <b>股票总市值</b> ${ts ? `${y(ts)} 股 × ${px ? px.toFixed(2) : "?"} = ` : ""}${y(held)} 元
+      —— 应该和券商 App 里这只股票的市值对得上<br>
     <b>杠杆</b> ${y(held)} ÷ ${y(eq)} =
       <b style="color:${lev >= cap ? "var(--red)" : (lev > cap - 0.05 ? "var(--amber)" : "var(--green)")}">${lev.toFixed(3)} 倍</b>
       (软顶 ${cap})<br>
     <b>底仓权重</b> ${(baseW*100).toFixed(1)}%(目标 ${(base*100).toFixed(0)}%)—— ${baseMsg}<br>
     <b>加仓浮动盈亏</b> <span style="color:${col(trPnl)}">${sign(trPnl)} 元</span>
-      (成本 ${y(trCost)} → 市值 ${y(trVal)}${trCost ? `,${(trPnl/trCost*100).toFixed(2)}%` : ""})<br>
+      ${listedShares ? `(仅限表里记了成本的 ${y(listedShares)} 股:成本 ${y(trCost)} → 市值 ${y(listedShares*px)}${trCost ? `,${(trPnl/trCost*100).toFixed(2)}%` : ""})`
+                     : "(加仓表是空的,算不出)"}<br>
     <b>已实现盈亏</b> <span style="color:${col(realized)}">${sign(realized)} 元</span>
       (${(advState.sellLog || []).length} 笔卖出,已扣双边手续费 ${(C*100).toFixed(1)}%)<br>
-    <span style="color:var(--muted)">计价基准: ${priceNote} · 现金是推算值(净资产 − 底仓 − 加仓),
-      如果和你券商 App 里的数字差很多,说明上面的数字该更新了</span>
+    <span style="color:var(--muted)">计价基准: ${priceNote} · 只有「股票总市值」是按你填的股数×现价算出来的;
+      ${debtKnown ? "现金及其他资产" : "右边那个净额"}是用会计等式倒推的,不是观测值</span>
     ${(() => {
       const c = trancheShareCheck();
       if (!c || c.ok) return "";
@@ -2428,11 +2463,11 @@ function renderLevEcho() {
   const eq = parseFloat(document.getElementById("totalEquityInput").value);
   const bv = baseValNow();
   if (!eq || !bv) { box.style.display = "none"; return; }
-  const px = currentStockPrevClose || currentStockOpen;
-  const trVal = advState.tranches.reduce((s, tr) => s + tr.shares * (px || tr.cost), 0);
-  const held = bv + trVal;
+  const px = priceNow();
+  const held = heldValNow();                 // 总股数 × 现价 -- the broker's number, not the table's
+  const trVal = Math.max(0, held - bv);      // whatever is not baseline is leveraged exposure
   const lev = held / eq;
-  const cash = eq - held;
+  const net = eq - held;   // NET of cash, other assets and debt -- cannot be split without the debt figure
   const cap = SP("lev_cap", 1.5), base = SP("base_frac", 0.9);
   let col = "var(--green)", msg = "";
   if (lev >= cap) { col = "var(--red)"; msg = `已达到/超过 ${cap} 倍软顶,今天不要再买`; }
@@ -2445,8 +2480,9 @@ function renderLevEcho() {
     + `(底仓 ${bv.toLocaleString("zh-CN",{maximumFractionDigits:0})} + 加仓 ${trVal.toLocaleString("zh-CN",{maximumFractionDigits:0})})`
     + ` ÷ 净资产 ${eq.toLocaleString("zh-CN",{maximumFractionDigits:0})} = `
     + `<b style="color:${col}">杠杆 ${lev.toFixed(3)} 倍</b><br>`
-    + `推出来的现金 ${cash.toLocaleString("zh-CN",{maximumFractionDigits:0})} 元`
-    + (cash < 0 ? `(负数 = 融资欠款,正常)` : `(闲置现金)`)
+    + `净资产减掉股票还剩 ${net.toLocaleString("zh-CN",{maximumFractionDigits:0})} 元`
+    + (net < 0 ? `(负数:说明借钱买了股票,具体是"现金 + 其他资产 − 负债"的净额)`
+               : `(现金 + 其他资产 − 负债 的净额)`)
     + ` · 底仓占净值 ${(bv/eq*100).toFixed(1)}%(目标 ${(base*100).toFixed(0)}%)<br>`
     + `<span style="color:${col}">${msg}</span>`;
 }
@@ -2456,7 +2492,8 @@ document.getElementById("totalEquityInput").addEventListener("input", (e) => {
   renderExportView();
   renderOpenPriceDecision();
 });
-for (const [id, key] of [["totalSharesInput", "totalShares"], ["baseSharesInput", "baseShares"]]) {
+for (const [id, key] of [["totalSharesInput", "totalShares"], ["baseSharesInput", "baseShares"],
+                         ["marginDebtInput", "marginDebt"]]) {
   document.getElementById(id).addEventListener("input", (e) => {
     advState[key] = e.target.value ? parseFloat(e.target.value) : null;
     // keep the legacy field in step so anything still reading it, and the CSV, stay correct
