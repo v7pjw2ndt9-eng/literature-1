@@ -104,9 +104,16 @@
     <div class="row-title" style="margin-top:18px">账户设置(用于计算杠杆是否达到1.5倍上限)</div>
     <div class="todo-sub" style="margin-bottom:10px">这两个数字填"现在/最新"的实际值,不是某个历史时间点——每次持仓或净值变化后来更新一下即可,工具会自动按最新数字重新计算</div>
     <div class="inline-fields">
-      <div class="field"><label>账户总净值(元,现在的总资产)</label><input type="number" id="totalEquityInput" placeholder="例如 100000"></div>
-      <div class="field"><label>底仓(不含杠杆仓位)市值(元,现在的市值)</label><input type="number" id="baselineValueInput" placeholder="例如 90000"></div>
+      <div class="field"><label>净资产(元)= 总资产 − 融资欠款</label><input type="number" id="totalEquityInput" placeholder="例如 100000"></div>
+      <div class="field"><label>底仓股票市值(元,不含加仓、不含现金)</label><input type="number" id="baselineValueInput" placeholder="例如 90000"></div>
     </div>
+    <div class="todo-sub" style="margin-top:8px; line-height:1.7">
+      <b style="color:var(--red)">第一格千万别填"总资产"</b>——杠杆是拿持仓除以它算的。举例:自有 10 万、融资借 5 万、买了 15 万股票,
+      那么<b>净资产填 10 万</b>(杠杆 15÷10 = 1.5 倍,正好顶格)。填 15 万的话工具会算成 1.0 倍、告诉你还能继续买,
+      实际会加到 2.25 倍。<br>
+      <b>第二格只填股票市值</b>,不含现金也不含加仓那几笔。现金不用单独填——它等于"净资产 − 底仓 − 加仓",工具自己会推。
+    </div>
+    <div id="levEchoBox" style="display:none; margin-top:8px; padding:9px 12px; border-radius:8px; font-size:13px"></div>
     <div id="baselineWeightBox" style="display:none; margin-top:4px; padding:10px 12px; background:#10141a; border:1px solid var(--border); border-radius:8px; font-size:13px"></div>
     <div class="row-title" style="margin-top:18px">持仓中的杠杆仓位(每笔挂"成本价+5%"止盈单,每天开盘都要继续挂,直到成交;每天最多允许3笔同时止盈)</div>
     <table id="tranchesTable"><thead><tr><th>买入日期</th><th>股数</th><th>成本价</th><th>止盈目标价</th><th></th></tr></thead><tbody></tbody></table>
@@ -116,6 +123,9 @@
       <div class="field"><label>成本价</label><input type="number" step="0.01" id="newTrancheCost" placeholder="23.50"></div>
       <div class="field" style="display:flex; align-items:flex-end;"><button class="add-btn" id="addTrancheBtn" style="margin-top:0; width:100%">+ 添加</button></div>
     </div>
+
+    <div class="row-title" style="margin-top:18px">实时资产负债表(全部由上面两个数字 + 加仓记录推算,随最新价自动更新)</div>
+    <div id="balanceSheetBox"></div>
 
     <div class="row-title" style="margin-top:18px">云同步(可选,通过 GitHub Gist)</div>
     <div class="todo-sub" style="margin-bottom:10px">去 GitHub 头像→Settings→Developer settings→Personal access tokens→Fine-grained tokens 新建一个只勾"Gist"读写权限的 Token,填在下面就能在多台设备间同步这个页面的净值/持仓/卖出记录。Token 只存在这台设备本地,不会出现在CSV导出或"导出记录"文字卡片里;但 Gist 本身是"secret"(不公开列出,不是强加密),知道链接的人仍能看到内容,别用来存比这更敏感的东西。</div>
@@ -804,6 +814,7 @@ function applyAdvUIFromState() {
   document.getElementById("advancedModeToggle").checked = !!advState.enabled;
   document.getElementById("totalEquityInput").value = advState.totalEquity ?? "";
   document.getElementById("baselineValueInput").value = advState.baselineValue ?? "";
+  if (typeof renderLevEcho === "function") renderLevEcho();
   renderTranchesTable();
   renderExportView();
   renderSyncUI();
@@ -821,6 +832,10 @@ function toggleAdvancedCards() {
 }
 
 function renderExportView() {
+  // every state-change path already calls this, so hanging the derived views here means they can
+  // never go stale behind an edit that forgot to refresh them
+  if (typeof renderLevEcho === "function") renderLevEcho();
+  if (typeof renderBalanceSheet === "function") renderBalanceSheet();
   const el = document.getElementById("exportView");
   if (!el) return;
   const lines = [];
@@ -2284,6 +2299,118 @@ document.getElementById("advancedModeToggle").addEventListener("change", (e) => 
   if (e.target.checked && cachedForAdv) recomputeBreakerStatus();
   else renderDecision();
 });
+// Echo back what the two account numbers IMPLY, so a mistyped denominator shows up at once. Entering
+// 总资产 (which includes borrowed money) instead of 净资产 understates leverage by exactly the amount
+// borrowed -- the one error in this form that loses money rather than just showing a wrong number.
+// A balance sheet needs no new storage or sync: everything on it is DERIVED from the two account
+// inputs plus the tranche list, all of which advState already holds and pushToGist already ships.
+// Cash is the plug -- 净资产 − 底仓 − 加仓 -- so a negative number is the margin loan. Showing it is
+// the point: if the derived cash looks nothing like reality, one of the two typed numbers is stale.
+function renderBalanceSheet() {
+  const box = document.getElementById("balanceSheetBox");
+  if (!box) return;
+  const eq = parseFloat(document.getElementById("totalEquityInput").value);
+  const bv = parseFloat(document.getElementById("baselineValueInput").value);
+  if (!eq || !bv) {
+    box.innerHTML = `<div class="todo-sub">填好上面的「净资产」和「底仓股票市值」后,这里会自动出表。</div>`;
+    return;
+  }
+  const px = currentStockPrevClose || currentStockOpen;
+  const priceNote = currentStockOpen ? `今开 ${currentStockOpen.toFixed(2)}`
+                  : (currentStockPrevClose ? `昨收 ${currentStockPrevClose.toFixed(2)}` : "无实时价,按成本价估");
+  const trs = advState.tranches || [];
+  const trVal = trs.reduce((s, t) => s + t.shares * (px || t.cost), 0);
+  const trCost = trs.reduce((s, t) => s + t.shares * t.cost, 0);
+  const trPnl = trVal - trCost;
+  const held = bv + trVal;
+  const cash = eq - held;
+  const debt = cash < 0 ? -cash : 0;
+  const freeCash = cash > 0 ? cash : 0;
+  const assets = held + freeCash;
+  const lev = held / eq;
+  const cap = SP("lev_cap", 1.5), base = SP("base_frac", 0.9), band = SP("rebalance_band", 0.03);
+  const C = SP("cost_leg", 0.001);
+  const realized = (advState.sellLog || []).reduce((s, e) => {
+    const sh = +e.shares || 0, b = +e.buyPrice || 0, sp = +e.sellPrice || 0;
+    return s + sh * (sp * (1 - C) - b * (1 + C));
+  }, 0);
+  const y = v => v.toLocaleString("zh-CN", { maximumFractionDigits: 0 });
+  const sign = v => (v >= 0 ? "+" : "−") + y(Math.abs(v));
+  const col = v => v >= 0 ? "var(--green)" : "var(--red)";
+
+  const baseW = bv / eq;
+  let baseMsg;
+  if (Math.abs(baseW - base) <= band) {
+    baseMsg = `<span style="color:var(--green)">在 ±${(band*100).toFixed(0)}% 带内,不用动</span>`;
+  } else {
+    const target = base * eq;
+    baseMsg = `<span style="color:var(--amber)">偏离带宽,建议${target > bv ? "买入" : "卖出"} 约 ${y(Math.abs(target - bv))} 元调回 ${(base*100).toFixed(0)}%</span>`;
+  }
+
+  box.innerHTML = `
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px">
+    <div style="background:#10141a; border:1px solid var(--border); border-radius:8px; padding:11px 13px">
+      <div style="font-weight:600; margin-bottom:7px">资产</div>
+      <table style="width:100%; font-size:13px">
+        <tr><td>底仓股票</td><td style="text-align:right">${y(bv)}</td></tr>
+        <tr><td>加仓股票(${trs.length} 笔)</td><td style="text-align:right">${y(trVal)}</td></tr>
+        <tr><td>现金</td><td style="text-align:right">${y(freeCash)}</td></tr>
+        <tr style="border-top:1px solid var(--border); font-weight:600">
+          <td>资产合计</td><td style="text-align:right">${y(assets)}</td></tr>
+      </table>
+    </div>
+    <div style="background:#10141a; border:1px solid var(--border); border-radius:8px; padding:11px 13px">
+      <div style="font-weight:600; margin-bottom:7px">负债 与 净资产</div>
+      <table style="width:100%; font-size:13px">
+        <tr><td>融资欠款</td><td style="text-align:right; color:${debt ? "var(--red)" : "inherit"}">${y(debt)}</td></tr>
+        <tr><td style="color:var(--muted)">&nbsp;</td><td></td></tr>
+        <tr><td>净资产(你自己的钱)</td><td style="text-align:right">${y(eq)}</td></tr>
+        <tr style="border-top:1px solid var(--border); font-weight:600">
+          <td>合计</td><td style="text-align:right">${y(debt + eq)}</td></tr>
+      </table>
+    </div>
+  </div>
+  <div style="background:#10141a; border:1px solid var(--border); border-radius:8px; padding:11px 13px; margin-top:12px; font-size:13px; line-height:1.85">
+    <b>杠杆</b> ${y(held)} ÷ ${y(eq)} =
+      <b style="color:${lev >= cap ? "var(--red)" : (lev > cap - 0.05 ? "var(--amber)" : "var(--green)")}">${lev.toFixed(3)} 倍</b>
+      (软顶 ${cap})<br>
+    <b>底仓权重</b> ${(baseW*100).toFixed(1)}%(目标 ${(base*100).toFixed(0)}%)—— ${baseMsg}<br>
+    <b>加仓浮动盈亏</b> <span style="color:${col(trPnl)}">${sign(trPnl)} 元</span>
+      (成本 ${y(trCost)} → 市值 ${y(trVal)}${trCost ? `,${(trPnl/trCost*100).toFixed(2)}%` : ""})<br>
+    <b>已实现盈亏</b> <span style="color:${col(realized)}">${sign(realized)} 元</span>
+      (${(advState.sellLog || []).length} 笔卖出,已扣双边手续费 ${(C*100).toFixed(1)}%)<br>
+    <span style="color:var(--muted)">计价基准: ${priceNote} · 现金是推算值(净资产 − 底仓 − 加仓),
+      如果和你券商 App 里的数字差很多,说明上面两个输入该更新了</span>
+  </div>`;
+}
+
+function renderLevEcho() {
+  const box = document.getElementById("levEchoBox");
+  const eq = parseFloat(document.getElementById("totalEquityInput").value);
+  const bv = parseFloat(document.getElementById("baselineValueInput").value);
+  if (!eq || !bv) { box.style.display = "none"; return; }
+  const px = currentStockPrevClose || currentStockOpen;
+  const trVal = advState.tranches.reduce((s, tr) => s + tr.shares * (px || tr.cost), 0);
+  const held = bv + trVal;
+  const lev = held / eq;
+  const cash = eq - held;
+  const cap = SP("lev_cap", 1.5), base = SP("base_frac", 0.9);
+  let col = "var(--green)", msg = "";
+  if (lev >= cap) { col = "var(--red)"; msg = `已达到/超过 ${cap} 倍软顶,今天不要再买`; }
+  else if (lev > cap - 0.05) { col = "var(--amber)"; msg = "接近软顶"; }
+  else msg = `距 ${cap} 倍软顶还有 ${((cap - lev) * eq).toLocaleString("zh-CN", {maximumFractionDigits: 0})} 元的买入空间`;
+  box.style.display = "block";
+  box.style.background = "#10141a";
+  box.style.border = "1px solid var(--border)";
+  box.innerHTML = `按你填的数字:持仓 ${held.toLocaleString("zh-CN",{maximumFractionDigits:0})} 元`
+    + `(底仓 ${bv.toLocaleString("zh-CN",{maximumFractionDigits:0})} + 加仓 ${trVal.toLocaleString("zh-CN",{maximumFractionDigits:0})})`
+    + ` ÷ 净资产 ${eq.toLocaleString("zh-CN",{maximumFractionDigits:0})} = `
+    + `<b style="color:${col}">杠杆 ${lev.toFixed(3)} 倍</b><br>`
+    + `推出来的现金 ${cash.toLocaleString("zh-CN",{maximumFractionDigits:0})} 元`
+    + (cash < 0 ? `(负数 = 融资欠款,正常)` : `(闲置现金)`)
+    + ` · 底仓占净值 ${(bv/eq*100).toFixed(1)}%(目标 ${(base*100).toFixed(0)}%)<br>`
+    + `<span style="color:${col}">${msg}</span>`;
+}
 document.getElementById("totalEquityInput").addEventListener("input", (e) => {
   advState.totalEquity = e.target.value ? parseFloat(e.target.value) : null;
   saveAdvState(advState);
