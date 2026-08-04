@@ -20,14 +20,20 @@ name: 每日开盘信号
 # earlier run today already sent. Redundant triggers are free; a missed morning is not.
 on:
   schedule:
-    - cron: "12 1 * * 1-5"       # 09:12 Beijing, Mon-Fri
-    - cron: "27 1 * * 1-5"       # 09:27  right after the auction
-    - cron: "50 1 * * 1-5"       # 09:50
-    - cron: "30 2 * * 1-5"       # 10:30  last resort
+    - cron: "7 1 * * 1-5"        # 09:07 Beijing, Mon-Fri
+    - cron: "23 1 * * 1-5"       # 09:23  right after the auction
+    - cron: "41 1 * * 1-5"       # 09:41
+    - cron: "13 2 * * 1-5"       # 10:13
   workflow_dispatch:              # manual run, for testing
     inputs:
       force:
         description: "强制发送(忽略休市判断)—— 周末/节假日测试用,内容取上一个交易日"
+        type: boolean
+        default: false
+  # Invoked by daily-signal-backup.yml, which carries its own crons. Same implementation, second queue.
+  workflow_call:
+    inputs:
+      force:
         type: boolean
         default: false
 
@@ -50,13 +56,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: 安装依赖
+      - name: install-deps
         run: pip install --quiet numpy
 
       # Chinese exchange holidays are not expressible in cron, so the run is skipped when the market
       # is plainly not open. The check is data-driven rather than a hardcoded holiday list: if no
       # commodity has produced a day-session open, there is no session today.
-      - name: 判断今天是否开市
+      - name: market-open-check
         id: gate
         env:
           FORCE: ${{ inputs.force }}
@@ -100,7 +106,7 @@ jobs:
       # With four triggers a day, the second one through must not send a second copy. Ask the API
       # whether any earlier run today got its send step to success. FAIL-OPEN on any error: a
       # duplicate email is a nuisance, a silently skipped one is the whole problem being fixed.
-      - name: 今天是否已经发过
+      - name: dedupe-check
         id: dedupe
         if: steps.gate.outputs.trading == 'true'
         env:
@@ -138,14 +144,18 @@ jobs:
           # no email at all is invisible unless the next one says so, and with schedules that GitHub
           # documents as droppable, that gap has to be reported rather than assumed away.
           try:
-              runs = api(f"/repos/{repo}/actions/workflows/daily-signal.yml/runs?per_page=60")
+              # ALL runs, not this workflow's. A run triggered through workflow_call belongs to the
+              # CALLING workflow (daily-signal-backup.yml), so a per-workflow query would make the two
+              # blind to each other and send twice. Identifying a send by the STEP's name instead of by
+              # the file it came from also means other workflows (pages builds) are ignored for free.
+              runs = api(f"/repos/{repo}/actions/runs?per_page=60")
               for run in sorted(runs.get("workflow_runs", []),
                                 key=lambda r: r["created_at"], reverse=True):
                   if run["id"] == me or run["conclusion"] != "success":
                       continue
                   started = (datetime.datetime.strptime(run["created_at"], "%Y-%m-%dT%H:%M:%SZ")
                              + datetime.timedelta(hours=8)).strftime("%Y-%m-%d")
-                  sent = any(st["name"] == "生成并发送" and st.get("conclusion") == "success"
+                  sent = any(st["name"].startswith("send-mail") and st.get("conclusion") == "success"
                              for job in api(f"/repos/{repo}/actions/runs/{run['id']}/jobs").get("jobs", [])
                              for st in job.get("steps", []))
                   if not sent:
@@ -159,7 +169,9 @@ jobs:
           out("false", f"{today} 今天还没发过,继续(上次成功发送 {LAST['d'] or '无记录'})")
           PY
 
-      - name: 生成并发送
+      # The dedupe step identifies a past send by this step's name. Keeping the name ASCII means a
+      # copy/paste that mangles encoding can no longer silently break the match and mail twice a day.
+      - name: send-mail
         if: steps.gate.outputs.trading == 'true' && steps.dedupe.outputs.already != 'true'
         working-directory: signal
         env:
@@ -174,10 +186,10 @@ jobs:
           POSITIONS_GIST_RAW_URL: ${{ secrets.POSITIONS_GIST_RAW_URL }}
         run: python3 daily_signal.py --wait-open --send
 
-      - name: 跳过说明
+      - name: skipped-holiday
         if: steps.gate.outputs.trading != 'true'
         run: echo "今天没有商品日盘开盘,判定为休市,不发信。"
 
-      - name: 已发过说明
+      - name: skipped-already-sent
         if: steps.gate.outputs.trading == 'true' && steps.dedupe.outputs.already == 'true'
         run: echo "今天更早的一次运行已经把邮件发出去了,本次不重复发送。"
