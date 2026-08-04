@@ -1,0 +1,24 @@
+name: 每日开盘信号(备用触发)
+
+# WHY A SECOND FILE INSTEAD OF MORE CRONS IN THE FIRST
+# GitHub queues scheduled runs per WORKFLOW. Four cron entries inside one file are still one thing for
+# the scheduler to service or drop -- and on 2026-08-03/04 it dropped five consecutive firings while
+# dispatching one stray run 11.5h late. This file is a separate workflow with its own crons, so it is
+# a second, independent chance to be serviced. It contains no logic: it calls the same job, so there is
+# nothing to keep in sync. The dedupe step inside that job means whichever fires first wins and the
+# rest exit without sending.
+on:
+  schedule:
+    - cron: "47 2 * * 1-5"       # 10:47 Beijing
+    - cron: "19 3 * * 1-5"       # 11:19  (morning session ends 11:30)
+    - cron: "7 5 * * 1-5"        # 13:07  afternoon -- the open is long fixed, prices still valid
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  call:
+    uses: ./.github/workflows/daily-signal.yml
+    secrets: inherit
