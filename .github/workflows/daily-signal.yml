@@ -1,36 +1,33 @@
 name: 每日开盘信号
 
-# TIMING, and why it is not 09:25
-# The stock's open is fixed by the 09:25 call auction, and the bracket prices depend on it. But
-# GitHub's scheduled runners drift by 5-30 minutes and are sometimes skipped entirely, so aiming at
-# 09:25 would miss more often than it hits. Instead the job starts EARLY and polls for the open.
+# WHAT TRIGGERS THIS
+# Nothing on a clock, and deliberately so. `on: schedule` does not work on this account: the same
+# */5 probe ran in this repo and in a freshly created empty one for a combined 186 minutes -- 36
+# expected firings -- and produced ZERO runs, while workflow_dispatch succeeded 6/6 over the same
+# period. Four cron entries used to sit here as a "maybe it comes back" hedge; they were removed
+# because a trigger that has never once fired is not a hedge, it is a thing that looks like one.
 #
-# A late run is not a wrong run: once the auction sets the open it does not change for the rest of the
-# session, so the prices in the email stay correct -- only the time left to act shrinks. Every message
-# carries the Beijing timestamp it was built at, so lateness is visible rather than silent.
+# The daily clock now lives in daily-chain.yml: an environment wait timer holds a job for 23h45m,
+# and on waking it dispatches the next one (GITHUB_TOKEN cannot start most workflows, but
+# workflow_dispatch is an explicit exception) and then calls this workflow via workflow_call.
 #
-# cron is always UTC. 01:12 UTC = 09:12 Beijing, which is after the 09:00 commodity open (so the gate
-# is computable) and a few minutes before the 09:25 auction close (so the poll has room).
+# So this file is reached two ways, both of which are measured to work:
+#   - daily-chain.yml, once a day, automatically
+#   - you, manually, from the Actions tab
 #
-# WHY FOUR TIMES INSTEAD OF ONE
-# On 2026-08-03 the 01:12 schedule did not fire at all -- no run, no failure, nothing in the history.
-# That is documented GitHub behaviour, not a bug here: scheduled workflows are best-effort, get
-# delayed under load, and are dropped outright often enough that a single daily trigger is not a
-# delivery mechanism. So four triggers spread across the morning, with a dedupe step that skips if an
-# earlier run today already sent. Redundant triggers are free; a missed morning is not.
+# TIMING
+# 09:00 Beijing the commodity day session opens, so the gate is computable. 09:25 the stock's call
+# auction fixes the open, so the bracket prices are computable. A late run is not a wrong run: the
+# open does not change once set, only the time left to act shrinks. Every message carries the
+# Beijing timestamp it was built at, so lateness is visible rather than silent.
 on:
-  schedule:
-    - cron: "7 1 * * 1-5"        # 09:07 Beijing, Mon-Fri
-    - cron: "23 1 * * 1-5"       # 09:23  right after the auction
-    - cron: "41 1 * * 1-5"       # 09:41
-    - cron: "13 2 * * 1-5"       # 10:13
   workflow_dispatch:              # manual run, for testing
     inputs:
       force:
         description: "强制发送(忽略休市判断)—— 周末/节假日测试用,内容取上一个交易日"
         type: boolean
         default: false
-  # Invoked by daily-signal-backup.yml, which carries its own crons. Same implementation, second queue.
+  # Invoked by daily-chain.yml, which owns the daily clock (environment wait timer + self-dispatch).
   workflow_call:
     inputs:
       force:
@@ -80,7 +77,7 @@ jobs:
                   f.write(f"trading={v}\n")
 
           # Manual override, so delivery can be proven on a weekend instead of waiting for Monday.
-          # Only reachable via workflow_dispatch: `inputs.force` is empty on a scheduled run.
+          # Left false by daily-chain.yml, so the holiday check still applies on the automatic path.
           if os.environ.get("FORCE") == "true":
               emit("true")
               print("::notice::强制发送已开启,跳过休市判断(内容取上一个交易日,仅用于验证投递)")
@@ -103,9 +100,10 @@ jobs:
           print(f"::notice::{today} 开市={open_today}")
           PY
 
-      # With four triggers a day, the second one through must not send a second copy. Ask the API
-      # whether any earlier run today got its send step to success. FAIL-OPEN on any error: a
-      # duplicate email is a nuisance, a silently skipped one is the whole problem being fixed.
+      # The chain can end up doubled (a manual dispatch while one is already waiting), and a manual
+      # run can land on a day the chain already covered. Either way the second one through must not
+      # send again. FAIL-OPEN on any error: a duplicate email is a nuisance, a silently skipped one
+      # is the whole problem this project has been fighting.
       - name: dedupe-check
         id: dedupe
         if: steps.gate.outputs.trading == 'true'
@@ -142,12 +140,13 @@ jobs:
           # Two things are learned from one pass over the history: whether TODAY is already done
           # (dedupe), and when the last successful send was (miss detection). A morning that produces
           # no email at all is invisible unless the next one says so, and with schedules that GitHub
-          # documents as droppable, that gap has to be reported rather than assumed away.
+          # the chain can break silently, that gap has to be reported rather than assumed away.
           try:
-              # ALL runs, not this workflow's. A run triggered through workflow_call belongs to the
-              # CALLING workflow (daily-signal-backup.yml), so a per-workflow query would make the two
-              # blind to each other and send twice. Identifying a send by the STEP's name instead of by
-              # the file it came from also means other workflows (pages builds) are ignored for free.
+              # ALL runs, not this workflow's. A run reached through workflow_call belongs to the
+              # CALLING workflow (daily-chain.yml), so a per-workflow query would miss it entirely and
+              # a manual run would then send a second copy. A send is identified by the STEP name,
+              # which is ASCII so no encoding accident can silently break the match; other workflows
+              # (pages builds) are ignored for free.
               runs = api(f"/repos/{repo}/actions/runs?per_page=60")
               for run in sorted(runs.get("workflow_runs", []),
                                 key=lambda r: r["created_at"], reverse=True):
