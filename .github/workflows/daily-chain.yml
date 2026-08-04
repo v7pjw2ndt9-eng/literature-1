@@ -14,16 +14,28 @@ name: daily-chain
 #
 # THE THREE WAYS A CHAIN LIKE THIS DIES, AND WHAT IS DONE ABOUT EACH
 #   1. A run fails before arming the next one  -> the chain stops forever.
-#      Arming is the FIRST thing after the wait, before the market check and before the mail. A failed
-#      email costs one morning; a failed arm costs every morning after it.
+#      Arming happens right after the alignment sleep and before anything that touches the network,
+#      so a failed email costs one morning, not every morning after it. A second `if: failure()`
+#      arm covers the case where even the alignment step dies.
 #   2. Two chains start (a manual dispatch while one is already waiting) -> two emails a day, forever.
 #      Before arming, the run asks the API whether another run of THIS workflow is already waiting or
 #      queued, and if so does not arm. That makes a duplicate chain self-healing rather than permanent.
 #   3. A weekend or holiday skips the job -> nothing arms Monday.
 #      The whole job never skips. Only the mail step is conditional.
 #
+# WHY ARMING COMES AFTER THE SLEEP, NOT BEFORE
+# The wait timer is 1425 minutes -- 15 short of a day -- so whatever moment a run arms from becomes
+# 15 minutes earlier tomorrow. Arming before the alignment sleep pins that moment to the wait timer's
+# release time, and the whole chain walks backwards: 00:53, 00:38, 00:23 ... and by day seven it
+# releases at 23:23, which is 104 minutes early, trips the 90-minute guard, and fires at 07:23 Beijing
+# -- before the market opens, with no opening price to quote. Arming AFTER the sleep pins it to 01:07
+# instead, so the next release is 00:52 and the sleep puts it back on 01:07: a fixed point. It also
+# self-corrects lateness -- wake at 01:30 and the next release is 01:15, then 01:00, then back to 01:07.
+#
 # STARTING IT
-# Run it manually once, ideally between 01:00 and 02:00 UTC. After that it re-arms itself daily.
+# Run it manually once, at or shortly after 01:07 UTC (09:07 Beijing) -- the alignment step only ever
+# sleeps FORWARD, so starting after the target lands the chain on it immediately. After that it re-arms
+# itself daily.
 # There is still no SLA here: cancel the waiting run, or disable Actions, and the chain stops. But it
 # rides on workflow_dispatch, which is the one path measured to work in this account.
 
@@ -51,7 +63,31 @@ jobs:
     outputs:
       armed: ${{ steps.arm.outputs.armed }}
     steps:
-      # ---- 1. arm tomorrow FIRST. Nothing that can fail may run before this. ----
+      # ---- 1. align to 01:07 UTC (09:07 Beijing) ----
+      - name: align-to-target
+        run: |
+          set -Eeuo pipefail
+          TARGET_UTC="01:07"
+          now=$(date -u +%s)
+          today=$(date -u +%F)
+          target=$(date -u -d "${today} ${TARGET_UTC}:00" +%s)
+          # If the target already passed today, do not sleep ~24h waiting for tomorrow -- the brief is
+          # still actionable all session, and tomorrow's run is already armed.
+          if [ "$now" -lt "$target" ]; then
+            delay=$((target - now))
+            if [ "$delay" -le 5400 ]; then
+              echo "sleeping ${delay}s until ${TARGET_UTC}Z"
+              sleep "$delay"
+            else
+              echo "::warning::woke ${delay}s early (more than 90 min) -- proceeding now rather than idling"
+            fi
+          else
+            late=$((now - target))
+            [ "$late" -gt 3600 ] && echo "::warning::woke $((late / 60)) min after ${TARGET_UTC}Z; prices are still valid, only the time left to act is shorter"
+          fi
+          echo "::notice::fired at $(date -u +%FT%TZ) (target ${TARGET_UTC}Z)"
+
+      # ---- 2. arm tomorrow, FROM THE ALIGNED TIME. Must come after the sleep (see header). ----
       - name: arm-next-run
         id: arm
         env:
@@ -78,31 +114,31 @@ jobs:
           echo "armed=yes" >> "$GITHUB_OUTPUT"
           echo "::notice::armed the next run; it will wait on the daily-clock environment"
 
-      # ---- 2. align to 01:07 UTC (09:07 Beijing) ----
-      - name: align-to-target
+      # ---- 3. failsafe: if even the alignment step died, the chain must still survive. ----
+      # Only fires when something above failed AND the normal arm did not already succeed, so it can
+      # never produce a second dispatch on the happy path. The arming time is wrong in this case (it is
+      # whenever the failure happened, not 01:07), but the next day's align step pulls it back.
+      - name: arm-failsafe
+        if: failure() && steps.arm.outcome != 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
-          TARGET_UTC="01:07"
-          now=$(date -u +%s)
-          today=$(date -u +%F)
-          target=$(date -u -d "${today} ${TARGET_UTC}:00" +%s)
-          # If the target already passed today, do not sleep ~24h waiting for tomorrow -- the brief is
-          # still actionable all session, and tomorrow's run is already armed.
-          if [ "$now" -lt "$target" ]; then
-            delay=$((target - now))
-            if [ "$delay" -le 5400 ]; then
-              echo "sleeping ${delay}s until ${TARGET_UTC}Z"
-              sleep "$delay"
-            else
-              echo "::warning::woke ${delay}s early (more than 90 min) -- proceeding now rather than idling"
-            fi
-          else
-            late=$((now - target))
-            [ "$late" -gt 3600 ] && echo "::warning::woke $((late / 60)) min after ${TARGET_UTC}Z; prices are still valid, only the time left to act is shorter"
+          pending=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/daily-chain.yml/runs?per_page=100" \
+                      --jq "[.workflow_runs[] | select(.id != ${GITHUB_RUN_ID})
+                             | select(.status == \"waiting\" or .status == \"queued\"
+                                      or .status == \"pending\" or .status == \"requested\")] | length" \
+                    || echo "err")
+          if [ "$pending" != "err" ] && [ "$pending" -gt 0 ]; then
+            echo "::warning::failsafe: $pending run(s) already waiting -- not arming"
+            exit 0
           fi
-          echo "::notice::fired at $(date -u +%FT%TZ) (target ${TARGET_UTC}Z)"
+          gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/daily-chain.yml/dispatches" \
+            -f ref="${GITHUB_REF_NAME}"
+          echo "::warning::failsafe armed the next run after a failure; tomorrow's align step will re-centre the time"
 
-  # ---- 3. today's actual work: the same job the manual workflow runs, so there is one implementation ----
+  # ---- 4. today's actual work: the same job the manual workflow runs, so there is one implementation ----
   signal:
     needs: tick
     uses: ./.github/workflows/daily-signal.yml
