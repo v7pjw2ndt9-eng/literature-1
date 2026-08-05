@@ -1,21 +1,16 @@
 """
-daily_signal.py -- build the 09:15 morning briefing.
+daily_signal.py -- build the morning briefing for 600989.
 
-TIMING
-The two things this email carries become available at different moments:
-  09:00  the commodity day session opens -> today's probability, hence the GATE, is computable
-  09:25  the stock's call auction ends   -> the stock's open is fixed, hence the bracket PRICES
-GitHub's scheduled runners drift by 5-30 minutes and can be skipped entirely, so the job is scheduled
-EARLY and polls for the stock's open rather than trying to land on 09:25. A late run is not a wrong
-run: the open, once set, does not change for the rest of the session, so the prices stay correct --
-only the time left to act shrinks. The message always states the Beijing timestamp it was built at.
+WHEN IT IS MEANT TO RUN
+  09:00 Beijing  the commodity day session opens -> the model's features exist, so the GATE is computable
+  09:25 Beijing  the stock's call auction ends   -> today's open is fixed, so the BRACKET PRICES exist
+daily-chain.yml aims at 09:26, just after the second of those. Running earlier is not a shortcut: until
+09:25 Eastmoney reports today's open as the STRING "-", which is neither a price nor a zero, and the
+briefing's two most useful numbers cannot be computed at all.
 
-WHY 09:15 WORKS AT ALL
-The model's features are commodity overnight gaps, and the commodity day session opens at 09:00 --
-so by 09:15 today's probability is already computable. The stock's own open is not known until the
-09:15-09:25 call auction concludes, so the briefing can state the GATE (trade or not) and every order
-whose price does not depend on today's open, and gives the two bracket prices as formulas to fill in
-at 09:25.
+A late run is still a correct run: once the auction sets the open it does not change for the rest of the
+session, so the prices stay right and only the time left to act shrinks. Every message states the
+Beijing timestamp it was built at, so lateness is visible rather than silent.
 
 WHAT IT DELIBERATELY DOES NOT DO
 It does not send anything. Delivery needs a mail credential, and handling one is not something I will
@@ -95,6 +90,18 @@ def fetch_futures(sym):
             for r in _jsonp(t) if r["d"] >= HISTORY_START]
 
 
+def _num(v):
+    """Eastmoney returns the STRING "-" for a field that has no value yet -- and f46 (today's open)
+    stays "-" from midnight until the 09:25 call auction fixes it. Left as-is it reaches `op > 0` and
+    raises TypeError, killing the whole run; coerced to a number it would silently become 0.0 and be
+    mistaken for a real price. None is the only honest answer, and every caller already handles it."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f > 0 else None
+
+
 def fetch_realtime():
     out = {}
     for k, secid in EM_SECIDS.items():
@@ -103,7 +110,8 @@ def fetch_realtime():
         d = json.loads(t).get("data")
         if not d:
             raise RuntimeError(f"实时行情无数据: {k} ({secid}) —— 合约代码可能已变更")
-        out[k] = {"open": d.get("f46"), "prev_close": d.get("f60"), "last": d.get("f43")}
+        out[k] = {"open": _num(d.get("f46")), "prev_close": _num(d.get("f60")),
+                  "last": _num(d.get("f43"))}
     return out
 
 
@@ -157,7 +165,7 @@ def load_positions(gist_raw_url):
         return None
 
 
-def wait_for_stock_open(max_wait_s=900, poll_s=20):
+def wait_for_stock_open(max_wait_s=1500, poll_s=20):
     """Poll until the stock's call auction has produced an open (f46 > 0), or give up.
 
     Returns (realtime_dict, waited_seconds, got_open). Giving up is not fatal -- the briefing still
@@ -166,8 +174,8 @@ def wait_for_stock_open(max_wait_s=900, poll_s=20):
     waited = 0
     while True:
         rt = fetch_realtime()
-        op = rt["u"]["open"]
-        if op and op > 0:
+        op = rt["u"]["open"]           # None until the 09:25 auction fixes it (see _num)
+        if op is not None:
             return rt, waited, True
         if waited >= max_wait_s:
             return rt, waited, False
