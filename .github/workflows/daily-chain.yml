@@ -23,17 +23,26 @@ name: daily-chain
 #   3. A weekend or holiday skips the job -> nothing arms Monday.
 #      The whole job never skips. Only the mail step is conditional.
 #
+# WHY 01:26 UTC AND NOT EARLIER
+# 09:26 Beijing, one minute after the call auction fixes the stock's open -- as early as the
+# bracket prices can exist, since every minute later is a minute less to place the orders. If
+# Eastmoney has not published the open yet at 09:26, --wait-open polls every 20s for it. Firing at 09:07 meant the
+# open did not exist yet, so the script had to poll for it -- and Eastmoney reports a not-yet-known
+# price as the STRING "-", which made the old code raise TypeError and kill the run outright. Landing
+# after 09:25 removes the need to poll at all. The commodity day session opened at 09:00, so the gate
+# is computable either way.
+#
 # WHY ARMING COMES AFTER THE SLEEP, NOT BEFORE
 # The wait timer is 1425 minutes -- 15 short of a day -- so whatever moment a run arms from becomes
 # 15 minutes earlier tomorrow. Arming before the alignment sleep pins that moment to the wait timer's
 # release time, and the whole chain walks backwards: 00:53, 00:38, 00:23 ... and by day seven it
-# releases at 23:23, which is 104 minutes early, trips the 90-minute guard, and fires at 07:23 Beijing
-# -- before the market opens, with no opening price to quote. Arming AFTER the sleep pins it to 01:07
-# instead, so the next release is 00:52 and the sleep puts it back on 01:07: a fixed point. It also
-# self-corrects lateness -- wake at 01:30 and the next release is 01:15, then 01:00, then back to 01:07.
+# releases at 23:43, which is 104 minutes early, trips the 90-minute guard, and fires at 07:43 Beijing
+# -- before the market opens, with no opening price to quote. Arming AFTER the sleep pins it to 01:26
+# instead, so the next release is 01:11 and the sleep puts it back on 01:26: a fixed point. It also
+# self-corrects lateness -- wake at 01:50 and the next release is 01:35, then 01:20, then back to 01:26.
 #
 # STARTING IT
-# Run it manually once, at or shortly after 01:07 UTC (09:07 Beijing) -- the alignment step only ever
+# Run it manually once, at or shortly after 01:26 UTC (09:26 Beijing) -- the alignment step only ever
 # sleeps FORWARD, so starting after the target lands the chain on it immediately. After that it re-arms
 # itself daily.
 # There is still no SLA here: cancel the waiting run, or disable Actions, and the chain stops. But it
@@ -57,17 +66,17 @@ jobs:
     # The wait timer lives on this environment. Create it once:
     #   Settings -> Environments -> New environment -> name: daily-clock
     #   Wait timer: 1425 minutes (23h45m), no reviewers, no branch restriction
-    # 1425 rather than 1380: waking ~14 min early costs 14 min of sleep instead of 57, and the align
-    # step below absorbs the remaining drift in either direction.
+    # 1425 rather than 1380: waking 15 min early costs 15 min of sleep instead of an hour, and the
+    # align step below absorbs the remaining drift in either direction.
     environment: daily-clock
     outputs:
       armed: ${{ steps.arm.outputs.armed }}
     steps:
-      # ---- 1. align to 01:07 UTC (09:07 Beijing) ----
+      # ---- 1. align to 01:26 UTC (09:26 Beijing) ----
       - name: align-to-target
         run: |
           set -Eeuo pipefail
-          TARGET_UTC="01:07"
+          TARGET_UTC="01:26"
           now=$(date -u +%s)
           today=$(date -u +%F)
           target=$(date -u -d "${today} ${TARGET_UTC}:00" +%s)
@@ -117,7 +126,7 @@ jobs:
       # ---- 3. failsafe: if even the alignment step died, the chain must still survive. ----
       # Only fires when something above failed AND the normal arm did not already succeed, so it can
       # never produce a second dispatch on the happy path. The arming time is wrong in this case (it is
-      # whenever the failure happened, not 01:07), but the next day's align step pulls it back.
+      # whenever the failure happened, not 01:26), but the next day's align step pulls it back.
       - name: arm-failsafe
         if: failure() && steps.arm.outcome != 'success'
         env:
