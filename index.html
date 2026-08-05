@@ -2746,6 +2746,11 @@ function renderBalanceSheet() {
   const trShares = trs.reduce((a, t) => a + (+t.shares || 0), 0);
   const trCost = trs.reduce((s, t) => s + (+t.shares || 0) * (+t.cost || 0), 0);
   const trVal = Math.max(0, L.stockVal - bv);
+  // The VALUE is the residual (总市值 − 底仓), so its implied share count is the residual too. Labelling
+  // that value with the tranche table's own share count made the row assert something false whenever the
+  // two disagreed -- 212,888 元 is 9,200 shares at 23.14, printed as "13,600 股". The assets column still
+  // added up, which is exactly why it would have gone unnoticed: only the label was wrong.
+  const trResidualSh = Math.round(trVal / px);
   const trPnl = trShares ? trShares * px - trCost : 0;
   const cap = SP("lev_cap", 1.5), base = SP("base_frac", 0.9), band = SP("rebalance_band", 0.03);
   const C = SP("cost_leg", 0.001);
@@ -2800,7 +2805,9 @@ function renderBalanceSheet() {
       <table style="width:100%; font-size:13px">
         <tr><td>底仓股票(${y(bsh)} 股${baseTyped ? ",你填的" : ` = 当前 ${y(L.shares)} − 加仓 ${y(trShares)}`})</td>
             <td style="text-align:right">${y(bv)}</td></tr>
-        <tr><td>加仓股票(${y(trShares)} 股,${trs.length} 笔)</td><td style="text-align:right">${y(trVal)}</td></tr>
+        <tr><td>加仓股票(${y(trResidualSh)} 股${trResidualSh !== trShares
+              ? `,<span style="color:var(--amber)">但加仓表里记着 ${y(trShares)} 股</span>`
+              : `,${trs.length} 笔`})</td><td style="text-align:right">${y(trVal)}</td></tr>
         <tr><td>现金${L.freeCash > 0 ? "" : `<span style="color:var(--muted)">(为负,见右侧欠款)</span>`}</td>
             <td style="text-align:right">${y(L.freeCash)}</td></tr>
         <tr style="border-top:1px solid var(--border); font-weight:600">
