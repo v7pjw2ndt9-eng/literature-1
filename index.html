@@ -97,27 +97,30 @@
     <input type="checkbox" id="advancedModeToggle">
     <span>
       <span class="toggle-label">高级模式:0.9底仓 + 每日10%杠杆操作(软顶1.5倍 + 180日<span id="lbl-stop1">…</span>熔断仅停双边挂单 + 每日最多3笔止盈)</span><br>
-      <span class="toggle-sub">开启后需要你手动维护"持仓中的杠杆仓位"记录,工具会据此判断能不能新开仓、以及提醒你哪些老仓位今天要继续挂止盈单</span>
+      <span class="toggle-sub">开启后你记的每一笔成交就是这个页面的账本:股数、现金、净资产、杠杆全部由"基准 + 成交记录"算出来,工具据此判断能不能新开仓、提醒哪些老仓位今天要继续挂止盈单。漏记一笔不是表格少一行,是后面所有数字一起偏</span>
     </span>
   </label>
   <div id="accountInputsBlock" style="display:none">
-    <div class="row-title" style="margin-top:18px">账户设置(用于计算杠杆是否达到1.5倍上限)</div>
-    <div class="todo-sub" style="margin-bottom:10px">这两个数字填"现在/最新"的实际值,不是某个历史时间点——每次持仓或净值变化后来更新一下即可,工具会自动按最新数字重新计算</div>
+    <div class="row-title" style="margin-top:18px">账户设置 · 基准(填一次就好,下面所有金额都从它往后结转:资产负债表、底仓占比、杠杆软顶、收益曲线)</div>
+    <div class="todo-sub" style="margin-bottom:10px">这是<b>一次性的基准快照</b>,不是每天要跟着改的实时值:填某一天你在券商那儿看到的股数和净资产,填完就别再动它。之后每笔成交在"今日操作清单"里勾一下,股数和现金自己往后滚。已经结转过的成交你再回来手改基准,等于把同一笔算两遍。</div>
     <div class="inline-fields">
-      <div class="field"><label>净资产(元)= 总资产 − 融资欠款</label><input type="number" id="totalEquityInput" placeholder="例如 100000"></div>
-      <div class="field"><label>持有 600989 总股数</label><input type="number" step="100" id="totalSharesInput" placeholder="例如 5000"></div>
-      <div class="field"><label>融资欠款(元,可选)</label><input type="number" id="marginDebtInput" placeholder="没有就留空"></div>
+      <div class="field"><label>基准日</label><input type="date" id="anchorDateInput"></div>
+      <div class="field"><label>那天的总股数</label><input type="number" step="100" id="totalSharesInput" placeholder="例如 48200"></div>
+      <div class="field"><label>那天的净资产(元)</label><input type="number" id="totalEquityInput" placeholder="例如 1020000"></div>
+      <div class="field"><label>那天的计价(留空=自动)</label><input type="number" step="0.01" id="anchorPriceInput" placeholder="自动取当日价"></div>
       <div class="field"><label>其中你认作底仓的股数</label><input type="number" step="100" id="baseSharesInput" placeholder="留空=自动算"></div>
       <input type="hidden" id="baselineValueInput">
+      <input type="hidden" id="marginDebtInput">
     </div>
     <div class="todo-sub" style="margin-top:8px; line-height:1.7">
-      <b style="color:var(--red)">第一格千万别填"总资产"</b>——杠杆是拿持仓除以它算的。举例:自有 10 万、融资借 5 万、买了 15 万股票,
-      那么<b>净资产填 10 万</b>(杠杆 15÷10 = 1.5 倍,正好顶格)。填 15 万的话工具会算成 1.0 倍、告诉你还能继续买,
-      实际会加到 2.25 倍。<br>
-      <b>股数直接抄券商</b>:总股数就是持仓页那个数。<b>底仓股数填你认作长期不动的那部分</b>;
-      留空的话就自动按「总股数 − 加仓表里的股数」算。市值不用你算——工具按最新价折算。<br>
-      <b>融资欠款可以不填</b>。杠杆和底仓权重只用到「股票市值 ÷ 净资产」,跟你有多少现金、欠多少钱无关。
-      填了只是让下面的资产负债表能把「现金」和「负债」分开列——不填就只报一个净额。
+      <b style="color:var(--red)">净资产不是总资产</b>——是你自己的钱,已经减掉融资欠款。举例:自有 10 万、融资借 5 万、买了 15 万股票,
+      <b>净资产填 10 万</b>。填 15 万的话工具会把杠杆算成 1.0 倍、告诉你还能继续买,实际是 2.25 倍。
+      不需要单独填"融资欠款":现金是拿「净资产 − 股数×计价」倒推出来的,负数就是欠款,之后每笔成交自己加减,融资利息按
+      <span id="lbl-fin">5%</span> 年化按天扣。<br>
+      <b>股数抄券商,但抄的是"基准日那天"的</b>:今天设基准就抄今天持仓页那个数,之后买卖了不要回来改它。
+      <b>底仓股数填你认作长期不动的那部分</b>,留空就自动按「当前股数 − 加仓表里的股数」算。<br>
+      <b>"那天的计价"一般留空</b>,自动取基准日的收盘价(基准日是今天就取现价)。它被<b>冻结</b>在基准里不再随行情变——
+      现金不会因为股价动而变,只有成交才会。只在你想让倒推出来的现金对上券商的可用资金时才手填。
     </div>
     <div id="levEchoBox" style="display:none; margin-top:8px; padding:9px 12px; border-radius:8px; font-size:13px"></div>
     <div id="baselineWeightBox" style="display:none; margin-top:4px; padding:10px 12px; background:#10141a; border:1px solid var(--border); border-radius:8px; font-size:13px"></div>
@@ -130,8 +133,32 @@
       <div class="field" style="display:flex; align-items:flex-end;"><button class="add-btn" id="addTrancheBtn" style="margin-top:0; width:100%">+ 添加</button></div>
     </div>
 
-    <div class="row-title" style="margin-top:18px">实时资产负债表(全部由上面两个数字 + 加仓记录推算,随最新价自动更新)</div>
+    <div class="row-title" style="margin-top:18px">实时资产负债表(由基准 + 基准日之后每一笔成交结转出来,现金已按 <span id="lbl-fin2">5%</span> 年化扣掉融资利息,随最新价自动更新——不用你手填)</div>
     <div id="balanceSheetBox"></div>
+
+    <div class="row-title" style="margin-top:18px">跟券商核对(不是要你填账,是拿结转结果去对一下)</div>
+    <div class="todo-sub" style="margin-bottom:10px">上面那些数字是从基准一笔笔加减出来的,所以它跟券商对不上只有两种可能:<b>基准填错了</b>,或者<b>有成交没记进来</b>(底仓再平衡、入金出金、分红、部分成交都属于这类)。隔一段时间填一次这里就能定位。</div>
+    <div class="inline-fields" style="grid-template-columns: 1fr 1fr auto;">
+      <div class="field"><label>券商现在显示的股数</label><input type="number" step="100" id="reconSharesInput" placeholder="抄持仓页"></div>
+      <div class="field"><label>券商现在显示的净资产</label><input type="number" id="reconEquityInput" placeholder="可留空"></div>
+      <div class="field" style="display:flex; align-items:flex-end;"><button class="add-btn" id="reconCheckBtn" style="margin-top:0; width:100%">核对</button></div>
+    </div>
+    <div id="reconResultBox" style="margin-top:10px"></div>
+
+    <div class="row-title" style="margin-top:18px">调整流水(成交清单以外的股数/现金变动)</div>
+    <div class="todo-sub" style="margin-bottom:10px">"今日操作清单"只记策略自己的买卖。<b>底仓再平衡、入金出金、分红、送股、部分成交的差额</b>这些它看不到,记在这里流水账才是完整的——否则它们会变成一笔说不清的对账差额。<b>股数</b>和<b>现金</b>填变化量:买入是股数正、现金负;分红只填现金正;入金只填现金正。</div>
+    <table id="adjTable"><thead><tr><th>日期</th><th>类型</th><th>股数变化</th><th>现金变化</th><th>备注</th><th></th></tr></thead><tbody></tbody></table>
+    <div id="adjEmpty" class="todo-sub" style="margin-top:6px">暂无</div>
+    <div class="inline-fields" style="margin-top:12px; grid-template-columns: 1fr 1.1fr 1fr 1fr auto;">
+      <div class="field"><label>日期</label><input type="date" id="newAdjDate"></div>
+      <div class="field"><label>类型</label><select id="newAdjKind">
+        <option>底仓再平衡</option><option>入金</option><option>出金</option><option>分红</option>
+        <option>送股/转增</option><option>成交价差额</option><option>对账差额</option><option>其他</option>
+      </select></div>
+      <div class="field"><label>股数变化(±)</label><input type="number" step="100" id="newAdjShares" placeholder="0"></div>
+      <div class="field"><label>现金变化(±)</label><input type="number" id="newAdjCash" placeholder="0"></div>
+      <div class="field" style="display:flex; align-items:flex-end;"><button class="add-btn" id="addAdjBtn" style="margin-top:0; width:100%">+ 添加</button></div>
+    </div>
 
     <div class="row-title" style="margin-top:18px">云同步(可选,通过 GitHub Gist)</div>
     <div class="todo-sub" style="margin-bottom:10px">去 GitHub 头像→Settings→Developer settings→Personal access tokens→Fine-grained tokens 新建一个只勾"Gist"读写权限的 Token,填在下面就能在多台设备间同步这个页面的净值/持仓/卖出记录。Token 只存在这台设备本地,不会出现在CSV导出或"导出记录"文字卡片里;但 Gist 本身是"secret"(不公开列出,不是强加密),知道链接的人仍能看到内容,别用来存比这更敏感的东西。</div>
@@ -219,14 +246,14 @@
 </div>
 
 <div class="card" id="exportCard" style="display:none">
-  <div class="row-title">导出记录(截图这张卡片保存,换设备时照此手动录入)</div>
+  <div class="row-title">导出记录(截图这张卡片留个档;换设备走下面的CSV,手抄容易漏掉基准那几行,基准一错整张资产负债表都错)</div>
   <pre id="exportView" style="white-space:pre-wrap; font-family:ui-monospace,monospace; font-size:13px; background:#10141a; border:1px solid var(--border); border-radius:8px; padding:12px; margin:0;"></pre>
   <div style="display:flex; gap:10px; margin-top:12px; flex-wrap:wrap">
     <button class="add-btn" id="exportCsvBtn">导出CSV文件</button>
     <button class="add-btn" id="importCsvBtn">导入CSV文件</button>
     <input type="file" id="importCsvInput" accept=".csv" style="display:none">
   </div>
-  <div class="todo-sub" style="margin-top:8px">CSV包含持仓中的仓位和卖出记录,换设备时先导出、再到新设备导入,比截图手动录入更可靠</div>
+  <div class="todo-sub" style="margin-top:8px">CSV包含基准(基准日/股数/净资产/计价)、持仓中的仓位、卖出记录和调整流水——<b>基准那行必须一起带走</b>,少了它新设备算出来的净资产和杠杆是错的、不是空的。换设备时先导出、再到新设备导入,比截图手动录入更可靠</div>
 </div>
 
 <div class="card" id="featCard" style="display:none">
@@ -260,9 +287,9 @@
   8. 如果页面长时间卡在"正在拉取"或报错,通常是接口临时限流或网络问题,过几分钟重试即可。<br>
   <br>
   <b>高级模式(0.9底仓+杠杆)额外说明:</b><br>
-  9. 持仓记录、账户净值只存在这台设备这个浏览器的本地存储里,不会上传、不会跨设备同步——换手机/换浏览器/清缓存都会丢失,建议定期截图"导出记录"卡片留档。<br>
+  9. 基准、持仓记录、卖出记录、调整流水都只存在这台设备这个浏览器的本地存储里(除非你开了云同步,那会推到你自己的 Gist)——换手机/换浏览器/清缓存都会丢。<b>现在这些记录就是账本本身</b>:丢了不是"少几条历史",是净资产、杠杆全部算不出来,只能回券商重新设一次基准,基准之前的曲线也接不回来。所以要么开云同步,要么定期导一份CSV。<br>
   10. "策略状态"的180天熔断信号,是用固定训练好的模型回溯计算历史上每一天,不是逐日walk-forward重新训练(那样在浏览器里跑不动),仅作为熔断开关的内部参考依据,不代表这套历史推演本身经过了跟正文模型同等严格的样本外检验。<br>
-  11. 杠杆上限检查依赖你如实维护"账户总净值"“底仓市值”和"持仓中的杠杆仓位"三项数据——工具不知道你实际有没有按提示下单、有没有成交,这些都要你自己对照真实账户手动记录,算出来的杠杆判断才准。<br>
+  11. <b>杠杆上限检查现在依赖的是"基准 + 每一笔成交记录",不再依赖你手填的净值</b>——但这反而把要求提高了:工具看不到你的券商账户,它只知道你在清单里勾了什么。少勾一笔买入,股数和欠款一起偏低,杠杆被算小、然后放你继续买;勾了但实际没成交、或成交价不一样,偏差同样会一路带下去,而且现在带偏的不只是杠杆,是净资产、底仓占比、收益曲线全部。所以勾选必须跟真实成交一一对应,成交价不同就去表格里改成实际价;清单看不到的事(底仓再平衡、入金出金、分红、送股、部分成交的差额)要记进"调整流水";并且隔一段时间用"跟券商核对"对一次账。<br>
   12. 每笔杠杆仓位的"成本价+5%"止盈单,理论上可能挂很多天甚至几个月才成交(2024-2026回测里最长挂过约60个交易日),挂单期间要每天重新挂,直到工具从表格里提示删除为止。<br>
   13. <b>熔断的标定(参考策略 + 8%停摆线)是这套东西里最关键、也最不确定的一处。</b>证据方面:把停摆时段的段数和长度照抄、只随机化开始日期,60个种子平均只有 75~81%(与"完全不停摆"的 78.4% 一样),真实信号 184.1% 一个种子都没输过 —— 说明值钱的是<b>时点</b>不是<b>停多久</b>;把软顶调低到同样的日均杠杆则只有 61.8%,差 122pp,说明也不是"少持仓"那么简单;而且 8>5>10>15>20 这个排序在 2020-2026、2020-2025、2020-2024 三个窗口里完全一致。<b>但</b>:这三个窗口是嵌套的不是独立的,而且我一共比较过约 20 组(参考策略×阈值),挑最高的天然有多重比较问题。换个阈值收益就是 96%~184%。请把 184.1% 当作一个区间里的点,不是一个估计值。<br>
   14. "实际组合"收益曲线只能从你第一笔记录的日期开始重建,更早的历史算不出来。现在四类记录都带完整的买入价/卖出价("老仓位止盈"、"上方卖单平加仓"、"双边当日了结"、手工补录),所以都能进曲线;<b>旧版本里那种只有卖价没有买价的"双边卖出"记录会被曲线忽略</b>,如果你有历史遗留的这类记录,请去表格里补上买入价。<br>
@@ -271,8 +298,8 @@
   17. 历史行情数据会缓存在本地(localStorage),同一天内重复打开页面基本不会重新下载;但期货数据接口不支持按日期增量拉取,缓存过期后仍需完整重新下载一次,不算严重但也不是完全的"增量"。<br>
   18. "每天最多3笔"这个上限统计三类减仓:老仓位止盈、上方卖单平掉加仓、双边当日了结,不含底仓再平衡。极端行情下多笔仓位同时达标也只处理前3笔(最老优先),其余留到以后,这段时间杠杆会比"立刻全清"更高,是有意的权衡而非bug。<br>
   22. <b>熔断只挡"新买入",从不挡卖出。</b>停摆期间:上方卖单(平掉一笔加仓)照挂、老仓位的成本×1.05止盈照挂,只有双边的买单不挂。这样才保证你在"策略过热"的判定下随时还能减仓 —— 回测里"停摆期连卖出也停"看着还高12pp,但那是把自己锁在高杠杆上,属于风控原则问题,不按单条历史路径的收益来定。<br>
-  19. "实际杠杆率""累计收益对比"这两个panel只用你实际记录的持仓/卖出算,180日超额收益那个panel则始终是"假设从未熔断"的参考信号(专门用来判断要不要熔断,不代表实际账户表现)——两者故意分开,别混着看。"实际杠杆率"用的是你当前填的"账户总净值"作为分母,反推整段历史,不是逐日重建的真实净值,如果净值较早期变化很大,早期的杠杆率数字会有偏差,越靠近今天越准。持仓表格、卖出记录表格里的"编辑"按钮可以直接改历史记录(比如实际成交价跟建议价不同时用来订正),改完立刻重新计算所有曲线,请自行核对改得对不对。<br>
-  20. "账户总净值""底仓市值"这两个数字永远填"现在/最新"的实际值,不是某次历史时刻的值,也不需要跟同花顺之类其他软件里的历史记录对齐——这套0.9底仓+10%杠杆分笔的打法是从你开始用这个工具那天起才生效的新策略,不建议把之前用别的方式做的历史交易硬套进来;直接从今天的真实净值/底仓市值填起,持仓和卖出记录留空,后面跟着"今日操作清单"一笔笔记录即可,"实际组合"曲线自然会从第一笔记录开始往后画。<br>
+  19. "实际杠杆率""累计收益对比"这两个panel只用你实际记录的持仓/卖出算,180日超额收益那个panel则始终是"假设从未熔断"的参考信号(专门用来判断要不要熔断,不代表实际账户表现)——两者故意分开,别混着看。"实际杠杆率"的分母现在是从基准结转出来的净值(基准现金 + 每笔成交的现金流 − 计提的融资利息,再加上当日股票市值),不再是拿"今天的净值"去反推整段历史。代价换到了另一头:<b>基准日之前一律算不出来</b>,曲线从基准日起画,更早的部分是没有,不是被画平了。持仓表格、卖出记录表格里的"编辑"按钮可以直接改历史记录(比如实际成交价跟建议价不同时用来订正),改完立刻重新计算所有曲线,请自行核对改得对不对。<br>
+  20. <b>基准是"某一天的快照",不是"现在的值"</b>——填基准日那天券商里的股数和净资产,之后就别再手动改它了:每笔成交勾进清单后,股数和现金会自己往后结转,你手改基准等于把已经算过的成交再算一遍。也不需要跟同花顺之类其他软件里的历史记录对齐——这套0.9底仓+10%杠杆分笔的打法是从你开始用这个工具那天起才生效的新策略,不建议把之前用别的方式做的历史交易硬套进来;基准日就填今天、股数和净资产抄今天的,持仓和卖出记录留空,后面跟着"今日操作清单"一笔笔记录即可,"实际组合"曲线自然会从基准日开始往后画。<br>
   21. 云同步用的 Gist 是"secret"不是真正私有——GitHub 不会公开列出它,但知道链接/ID的人不需要你的Token也能直接看到内容,请只用来存这类交易记录,不要存更敏感的信息。同步逻辑很简单:两个"推送/拉取"按钮都是全量覆盖(整份记录互相覆盖,不是逐条合并),没有做多设备同时改动的冲突合并;"自动推送"只会在你这台设备修改后自动把本机覆盖到云端,不会自动拉取覆盖本机,换新设备时需要手动点一次"从云端拉取"。Token 和 Gist ID 只存在浏览器本地,清缓存/换浏览器会丢,建议记在别处备份一份。<br>
   <br>
   <b>关于"熔断后撞上下跌"这件事的完整调研结论(2026-08,做了一轮独立审计):</b><br>
@@ -624,15 +651,26 @@ function loadAdvState() {
     const raw = localStorage.getItem(ADV_KEY);
     if (raw) return JSON.parse(raw);
   } catch (e) {}
-  return { enabled: true, totalEquity: null, baselineValue: null, tranches: [], sellLog: [] };
+  return { enabled: true, anchor: null, adjustments: [], tranches: [], sellLog: [] };
 }
+let advStateRev = 0;   // bumped on every save so the ledger's memo knows when to recompute
 function saveAdvState(state) {
+  advStateRev++;
   localStorage.setItem(ADV_KEY, JSON.stringify(state));
   scheduleAutoPush(); // no-op unless cloud sync + auto-push are both configured (defined below)
 }
 let advState = loadAdvState();
 if (!advState.sellLog) advState.sellLog = []; // back-compat for state saved before this field existed
 if (!advState.benchmarks) advState.benchmarks = {};
+if (!advState.adjustments) advState.adjustments = [];
+// MIGRATION off the four typed numbers.
+// The old shape asked for 净资产 / 总股数 as "现在的值" and made the user retype them after every fill.
+// Those same two numbers ARE a valid anchor -- they just need a date and a frozen mark attached, which
+// is what makes them roll forward instead of going stale. So the migration is a relabelling, not a
+// reset: nothing the user typed is discarded. It cannot run here, though, because the mark comes from
+// the live quote and no fetch has happened yet at parse time -- so it runs from maybeMigrateAnchor()
+// after the first price is known. Until then the old fields stay authoritative.
+if (advState.anchor && advState.anchor.migratedFrom === undefined) advState.anchor.migratedFrom = null;
 
 // ---------------- cloud sync (optional, via a private GitHub Gist) ----------------
 // Only advState (net worth / baseline value / tranches / sellLog) is synced -- never the market-data
@@ -745,7 +783,11 @@ function scheduleAutoPush() {
 }
 
 async function maybeAutoPullOnLoad() {
+  // The anchor is now the thing that makes a device non-empty: a device with an anchor and no fills is
+  // a freshly set up account, and silently overwriting its basis from the cloud would replace a correct
+  // basis with someone else's.
   const isEmptyLocal = advState.tranches.length === 0 && advState.sellLog.length === 0
+    && (advState.adjustments || []).length === 0 && !advState.anchor
     && !advState.totalEquity && !advState.baselineValue && !advState.totalShares;
   if (syncConfig.token && syncConfig.gistId && isEmptyLocal) {
     await pullFromGist();
@@ -817,16 +859,30 @@ function renderTranchesTable() {
   });
 }
 
+// The three anchor boxes are filled from advState.anchor once it exists, and from the legacy typed
+// fields before the migration has had a price to run with. They are NOT re-filled from the rolled-
+// forward ledger: showing today's derived share count in a box labelled "基准日的股数" is how the old
+// version taught the user to keep retyping, and typing a rolled-forward number back in as a basis
+// double-counts every fill already inside it.
+function renderAccountInputs() {
+  const a = advState.anchor;
+  const d = document.getElementById("anchorDateInput");
+  if (!d) return;
+  d.value = a?.date ?? "";
+  document.getElementById("totalSharesInput").value = a ? a.shares : (advState.totalShares ?? "");
+  document.getElementById("totalEquityInput").value = a ? a.equity : (advState.totalEquity ?? "");
+  document.getElementById("anchorPriceInput").value = a?.price ?? "";
+  document.getElementById("baseSharesInput").value = advState.baseShares ?? "";
+}
+
 function applyAdvUIFromState() {
   document.getElementById("advancedModeToggle").checked = !!advState.enabled;
-  document.getElementById("totalEquityInput").value = advState.totalEquity ?? "";
   document.getElementById("baselineValueInput").value = advState.baselineValue ?? "";
   if (typeof applyBenchmarkChecks === "function") applyBenchmarkChecks();
-  document.getElementById("totalSharesInput").value = advState.totalShares ?? "";
-  document.getElementById("baseSharesInput").value = advState.baseShares ?? "";
-  document.getElementById("marginDebtInput").value = advState.marginDebt ?? "";
+  renderAccountInputs();
   if (typeof renderLevEcho === "function") renderLevEcho();
   renderTranchesTable();
+  if (typeof renderAdjTable === "function") renderAdjTable();
   renderExportView();
   renderSyncUI();
   toggleAdvancedCards();
@@ -853,9 +909,15 @@ function renderExportView() {
   if (!el) return;
   const lines = [];
   lines.push(`更新时间: ${beijingNowStr()}`);
-  lines.push(`账户总净值: ${advState.totalEquity ?? "(未填写)"}`);
-  lines.push(`总股数: ${advState.totalShares ?? "(未填写)"}   底仓(自动): ${baseSharesNow() ?? "(算不出)"} 股   融资欠款: ${advState.marginDebt ?? "(未填)"}`);
-  lines.push(`底仓市值(按最新价折算): ${baseValNow() ? Math.round(baseValNow()) : "(算不出)"}`);
+  const _A = advState.anchor, _L = LEDGER();
+  const _r = v => v == null ? "(算不出)" : Math.round(v).toLocaleString("zh-CN");
+  lines.push(`基准 ${_A?.date ?? "(未设)"}: ${_A?.shares ?? "?"} 股 / 净资产 ${_A?.equity ?? "?"} / 计价 ${_A?.price ?? "自动"}`);
+  lines.push(`结转到今天: ${_L.ok ? _L.shares : "(算不出)"} 股 / 现金 ${_r(_L.ok ? _L.cash : null)} / 净资产 ${_r(_L.ok ? _L.equity : null)}`
+             + `   杠杆 ${_L.lev == null ? "(算不出)" : _L.lev.toFixed(3)}   底仓(自动) ${baseSharesNow() ?? "(算不出)"} 股`);
+  if ((advState.adjustments || []).length) {
+    lines.push(`调整流水 (${advState.adjustments.length}笔): ` +
+      advState.adjustments.map(a => `${a.date} ${a.kind} 股${a.shares || 0} 现金${Math.round(a.cash || 0)}`).join(" | "));
+  }
   lines.push(`持仓记录 (${advState.tranches.length}笔):`);
   if (advState.tranches.length === 0) {
     lines.push("  (无)");
@@ -879,7 +941,7 @@ function renderExportView() {
 function renderBaselineWeight() {
   const box = document.getElementById("baselineWeightBox");
   if (!box) return;
-  const eq = parseFloat(document.getElementById("totalEquityInput").value);
+  const eq = equityNow();
   const bv = baseValNow();
   if (!eq || !bv || eq <= 0) { box.style.display = "none"; return; }
   box.style.display = "block";
@@ -905,7 +967,7 @@ function renderBaselineWeight() {
     <span style="color:var(--muted); font-size:12px">
       当前总敞口 ${Math.round(totalExposure).toLocaleString()} 元(底仓 ${Math.round(bv).toLocaleString()} + 持仓中杠杆仓位 ${Math.round(trancheVal).toLocaleString()}),
       实际杠杆率 <b style="color:var(--text)">${lev.toFixed(2)}倍</b>。
-      做T赚的钱如果一直留在现金里不投回股票,这个占比会逐年下降,底仓就会名不副实——所以每次净值变化后顺手看一眼这里。
+      做T赚的钱如果一直留在现金里不投回股票,这个占比会逐年下降,底仓就会名不副实——现在这个比例跟着每笔成交自己更新,不用你手填净值,但也没人会替你补底仓,所以每次止盈成交之后看一眼这里(资产负债表里那个"已按这个数调仓了 → 记一笔"按钮会把补仓记进流水)。
     </span>`;
 }
 
@@ -993,8 +1055,14 @@ function csvEscape(v) {
 
 function exportCsv() {
   const rows = [["type","date","shares","price1","price2","tag","extra"]];
+  // The ANCHOR row goes FIRST and is not optional. Without it a restored device has a pile of fills and
+  // no starting balance, so it computes a WRONG 净资产 and 杠杆 rather than showing blanks -- which is
+  // the worse failure, because a wrong leverage number still opens the buy gate.
+  const A = advState.anchor;
+  if (A) rows.push(["ANCHOR", A.date, A.shares, A.price ?? "", "", "基准", A.equity]);
   advState.tranches.forEach(tr => rows.push(["TRANCHE", tr.date, tr.shares, tr.cost, "", "", ""]));
   advState.sellLog.forEach(s => rows.push(["SELL", s.date, s.shares ?? "", s.buyPrice ?? "", s.sellPrice ?? "", s.tag, s.buyDate ?? ""]));
+  (advState.adjustments || []).forEach(a => rows.push(["ADJUST", a.date, a.shares ?? 0, a.cash ?? 0, "", a.kind || "", a.note || ""]));
   const csv = rows.map(r => r.map(csvEscape).join(",")).join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -1031,7 +1099,21 @@ function importCsvText(text) {
   for (let i=1; i<lines.length; i++) {
     const cols = parseCsvLine(lines[i]);
     const row = {}; header.forEach((h,j) => row[h] = cols[j]);
-    if (row.type === "TRANCHE") {
+    if (row.type === "ANCHOR") {
+      // Replaces, never appends: there is exactly one basis. A second anchor row would silently make
+      // the later one win depending on file order.
+      const sh = parseFloat(row.shares), eq = parseFloat(row.extra), px = parseFloat(row.price1);
+      if (row.date && isFinite(sh) && isFinite(eq)) {
+        advState.anchor = { date: row.date, shares: sh, equity: eq,
+                            price: isFinite(px) && px > 0 ? px : null, migratedFrom: "csv" };
+        added++;
+      }
+    } else if (row.type === "ADJUST") {
+      advState.adjustments.push({ date: row.date, shares: parseFloat(row.shares) || 0,
+                                  cash: parseFloat(row.price1) || 0,
+                                  kind: row.tag || "其他", note: row.extra || row.tag || "" });
+      added++;
+    } else if (row.type === "TRANCHE") {
       advState.tranches.push({ date: row.date, shares: parseFloat(row.shares), cost: parseFloat(row.price1) });
       added++;
     } else if (row.type === "SELL") {
@@ -1485,6 +1567,8 @@ async function loadDailyState() {
     if (br.stop_thresh != null) { put("lbl-stop1", pct(br.stop_thresh)); put("lbl-stop2", pct(br.stop_thresh)); }
     if (br.resume_thresh != null) put("lbl-resume", pct(br.resume_thresh));
     if (gt != null) put("lbl-gate", (+gt).toFixed(3));
+    const fr = SP("fin_rate", null);
+    if (fr != null) { put("lbl-fin", pct(fr)); put("lbl-fin2", pct(fr)); }
   } catch (e) {
     dailyState = null;
     console.warn("daily_state.json 读取失败:", e.message);
@@ -1551,7 +1635,7 @@ function reconstructActualEquityCurve(stockBars) {
   if (bars.length === 0) return null;
 
   const baselineValue = baseValNow() || 0;
-  const totalEquity = parseFloat(document.getElementById("totalEquityInput").value) || 0;
+  const totalEquity = equityNow() || 0;
   const latestClose = stockBars[stockBars.length-1].close;
   const baselineShares = baselineValue ? baselineValue / latestClose : 0;
 
@@ -1692,27 +1776,29 @@ async function renderDashboard() {
 //     At 09:25 you cannot know which of those will fill, so pre-deducting them is lookahead. (That
 //     exact mistake was in both engines; fixing it moved the isolated backtest -2.3pp, which is the
 //     right direction for removing an unfair advantage.)
+// The re-marking dance this used to do is gone. It existed because 净资产 and 底仓市值 were two
+// separately-typed numbers from two different moments, so the baseline had to be dragged forward by the
+// overnight move before it could be added to an open-marked book. Now shares and cash both come out of
+// the ledger and are marked ONCE, here, at the open -- so numerator and denominator cannot disagree by
+// construction. The open, not the live price: the decision is made at 09:25 and must not drift as the
+// session moves, which is also the convention the Python engine's eq_at_open uses.
 function currentLeverageIfBuy(newTrancheValue) {
-  const totalEquity = parseFloat(document.getElementById("totalEquityInput").value);
-  const baselineValue = baseValNow();
-  if (!totalEquity || !baselineValue) return null; // can't check without these inputs
-  // Both legs must be marked at the SAME moment. 底仓市值 is a close-dated figure the user typed, so
-  // it is re-marked to today's open by the overnight move before being added to tranches that are
-  // already marked there. Mixing a close-dated baseline with an open-marked book inside one numerator
-  // mis-states the ratio on exactly the gap-up mornings where the cap is supposed to bite.
   const mark = currentStockOpen || currentStockPrevClose;
-  const drift = (currentStockOpen && currentStockPrevClose) ? (currentStockOpen / currentStockPrevClose) : 1;
-  const baselineAtOpen = baselineValue * drift;
-  const openTrancheValue = advState.tranches.reduce((s,tr)=>s+tr.shares*(mark||tr.cost), 0);
-  const equityAtOpen = totalEquity + (baselineAtOpen - baselineValue) + advState.tranches.reduce(
-      (s,tr)=>s+tr.shares*((mark||tr.cost) - (currentStockPrevClose||tr.cost)), 0);
-  return (baselineAtOpen + openTrancheValue + newTrancheValue) / Math.max(equityAtOpen, 1e-9);
+  const sh = sharesNow(), cash = cashNow();
+  if (!mark || sh == null || cash == null) return null;   // -> capUnknown -> fail CLOSED, no buy
+  const stockAtOpen = sh * mark;
+  const equityAtOpen = stockAtOpen + cash;                // cash is signed; a debit subtracts
+  // Buying on margin leaves equity unchanged (stock up, cash down by the same), so the new lot belongs
+  // in the numerator only. A non-positive equity is not a ratio: return Infinity so every `> cap`
+  // comparison blocks, instead of a negative number that would sail through `< cap`.
+  if (equityAtOpen <= 0) return Infinity;
+  return (stockAtOpen + newTrancheValue) / equityAtOpen;
 }
 
 function estimateNewTrancheValue(buyTarget) {
-  const totalEquity = parseFloat(document.getElementById("totalEquityInput").value);
-  if (!totalEquity) return 0;
-  const shares = Math.round((totalEquity*0.10/buyTarget)/100)*100;
+  const eq = equityNow();
+  if (!eq || eq <= 0) return 0;
+  const shares = Math.round((eq*0.10/buyTarget)/100)*100;
   return shares * buyTarget;
 }
 
@@ -1873,7 +1959,7 @@ function renderTodoList() {
       if (capUnknown) {
         addItem({
           title: `只挂卖出 ${sellTarget.toFixed(2)} — 无法校验软顶`,
-          sub: `请先在"账户设置"里填<b>账户总净值</b>和<b>底仓市值</b>,否则算不出买入后的杠杆。在填好之前不要挂买单。`,
+          sub: `请先在"账户设置"里设好<b>基准</b>(基准日 + 那天的股数 + 那天的净资产),否则算不出净资产,也就算不出买入后的杠杆。设好之前不要挂买单。`,
           checkable: false,
         });
       } else if (capBlocked) {
@@ -1886,7 +1972,7 @@ function renderTodoList() {
         addItem({
           title: `双边挂单: 卖 ${sellTarget.toFixed(2)} / 买 ${buyTarget.toFixed(2)}`,
           sub: prospectiveLev === null
-            ? "两边同时挂,数量相同。(填了账户净值和底仓市值后,这里会顺带校验1.5倍软顶)"
+            ? "两边同时挂,数量相同。(设好基准后,这里会顺带校验1.5倍软顶)"
             : `两边同时挂,数量相同。若买入成交,杠杆约 ${prospectiveLev.toFixed(3)} 倍,未超 ${SP("lev_cap", 1.5)} 软顶。`,
           checkable: false,
         });
@@ -1907,8 +1993,10 @@ function renderTodoList() {
             checked: alreadyConfirmed,
             onToggle: (isChecked) => {
               if (isChecked) {
-                const totalEquity = parseFloat(document.getElementById("totalEquityInput").value);
-                const shares = totalEquity ? Math.round((totalEquity*0.10/buyTarget)/100)*100 : 0;
+                // Same expression as estimateNewTrancheValue: the size the cap was checked against
+                // must be the size that gets booked, or the gate validated a trade that never happened.
+                const eqNow = equityNow();
+                const shares = (eqNow && eqNow > 0) ? Math.round((eqNow*0.10/buyTarget)/100)*100 : 0;
                 advState.tranches.push({ date: today, shares: shares || 0, cost: buyTarget });
                 advState.buyConfirmedDate = today;
                 advState.buyConfirmedPrice = buyTarget;
@@ -2131,6 +2219,18 @@ async function runPipeline() {
     currentStockLast = (stockRtCurrent && stockRtCurrent > 0) ? stockRtCurrent : null;
     cachedForAdv = { stockBars: stockBars.slice(0, nAll), futuresBars, model, mu, sd, warmup: WARMUP };
 
+    // The legacy typed pair can only become an anchor once a price exists to freeze into it, which is
+    // here and not at parse time. Runs at most once; after that there is an anchor and it no-ops.
+    if (maybeMigrateAnchor()) renderAccountInputs();
+    if (typeof renderAdjTable === "function") renderAdjTable();
+    if (typeof renderReconcile === "function") renderReconcile();
+    // AND the derived views, which is easy to forget and was: they hang off renderExportView() because
+    // "every state-change path calls it", but a market fetch is a PRICE-change path, not a state-change
+    // path -- and the ledger marks to price. Without this the sheet rendered once before the quote
+    // arrived, said "拿不到最新价", and stayed that way for the rest of the session with a live price
+    // sitting in memory.
+    renderExportView();
+
     if (document.getElementById("advancedModeToggle").checked) {
       statusEl.textContent = "计算高级模式熔断状态…";
       recomputeBreakerStatus();
@@ -2275,7 +2375,7 @@ function renderOpenPriceDecision() {
     if (isAdvancedMode()) {
       const prospectiveLev = currentLeverageIfBuy(estimateNewTrancheValue(buyTarget));
       if (prospectiveLev === null) {
-        capWarning = `<div style="color:var(--amber); margin-top:8px; font-size:13px">⚠️ 请先在"账户设置"里填写账户总净值和底仓市值,才能判断今天能不能新开仓(1.5倍杠杆上限)</div>`;
+        capWarning = `<div style="color:var(--amber); margin-top:8px; font-size:13px">⚠️ 请先在"账户设置"里设好基准(基准日 + 那天的股数 + 那天的净资产),才能判断今天能不能新开仓(1.5倍杠杆上限)</div>`;
       } else if (prospectiveLev > SP("lev_cap", 1.5)) {
         capBlocked = true;
         capWarning = `<div style="color:var(--red); margin-top:8px; font-size:13px">⚠️ 若今日买入成交,预计杠杆将达 ${prospectiveLev.toFixed(3)}倍,超过${SP("lev_cap", 1.5)}倍软顶——<b>今天只挂卖出价,不要挂买入价</b></div>`;
@@ -2334,15 +2434,248 @@ document.getElementById("advancedModeToggle").addEventListener("change", (e) => 
 function priceNow() {
   return currentStockLast || currentStockOpen || currentStockPrevClose || null;
 }
+
+// ================= 流水账:基准 + 已记录的成交 -> 今天的股数、现金、净资产 =================
+// WHY THIS REPLACED FOUR TYPED NUMBERS
+// The account card used to ask for 净资产 and 总股数 as "现在的值". That made reconciliation a DAILY
+// CHORE -- every fill changed both, so the user had to open the broker and retype -- and it could not
+// even be done correctly: the two numbers were typed at different moments and nothing in the page
+// could tell. Now they are a one-time ANCHOR (a dated snapshot) and the fills the checklist already
+// records roll the position forward from it. Typing happens once, plus whenever a 核对 shows drift.
+//
+// WHY THE ANCHOR FREEZES A PRICE
+// It stores {date, shares, equity, price} and derives cash ONCE as equity - shares*price. If cash were
+// re-derived from the live quote it would move on every tick while equity stayed fixed, which is
+// backwards: cash does not change when the price does. Negative cash IS the margin debt -- that is how
+// a margin account works, and it is why no separate 融资欠款 figure is needed or asked for.
+//
+// WHY THERE IS AN ADJUSTMENTS LIST
+// The checklist records the strategy's own fills and nothing else. It does NOT record: a 90% baseline
+// rebalance (the largest share movement the strategy produces, and previously suggested with no way to
+// say "done"), deposits/withdrawals, dividends, splits or bonus shares, or the residual when a fill
+// printed away from the limit. Every one of those would otherwise surface as unexplained drift and be
+// misread as a data-entry error. advState.adjustments is one generic {date, shares, cash, note} row
+// that covers all of them, so the ledger can stay exact and 核对 can mean what it says.
+//
+// This arithmetic was validated against 13 independently-derived vectors before it was put here,
+// including the path-dependent interest cases where accruing on the ending balance gives 0 instead of
+// the true 821.92. It is kept in DOM-free functions for that reason: every previous wrong number on
+// this page came from arithmetic buried inside a render function with no way to assert on it.
+
+function dayDiff(a, b) {
+  const A = Date.UTC(+a.slice(0, 4), +a.slice(5, 7) - 1, +a.slice(8, 10));
+  const B = Date.UTC(+b.slice(0, 4), +b.slice(5, 7) - 1, +b.slice(8, 10));
+  return Math.round((B - A) / 86400000);
+}
+
+// The mark to use for a given date: the live quote for today, otherwise the last close at or before
+// that date. Used only to turn an anchor's 净资产 into a cash balance at the moment it was set.
+function priceOnDate(d) {
+  if (d >= todayDateStr()) { const p = priceNow(); if (p) return p; }
+  const bars = (cachedForAdv && cachedForAdv.stockBars) || null;
+  if (!bars || !bars.length) return null;
+  let best = null;
+  for (const b of bars) if (b.date <= d && (!best || b.date > best.date)) best = b;
+  return best ? best.close : null;
+}
+
+// Every share- or cash-moving event as a dated delta. The anchor is an END-OF-DAY snapshot, so anything
+// dated ON the anchor date is already inside it: strictly greater, never >=, or every anchor-date fill
+// gets counted twice.
+function ledgerFlows(A, st, C) {
+  const flows = [], warn = [], err = [];
+  const bd = e => e.buyDate || e.date;   // no buyDate means a same-day round trip: the buy is dated on the sell
+
+  for (const t of (st.tranches || [])) {
+    if (!t || !t.date) { warn.push("加仓表里有一行没有日期,已跳过"); continue; }
+    if (t.date <= A.date) continue;                       // already inside the anchor's share count
+    const sh = +t.shares, c = +t.cost;
+    if (!isFinite(sh) || !sh || !isFinite(c) || c <= 0) {
+      warn.push(`${t.date} 这笔加仓的股数或成本价是空的,没法记账(已跳过)`); continue;
+    }
+    flows.push({ date: t.date, dShares: sh, dCash: -sh * c * (1 + C),
+                 why: `买入 ${sh} 股 @${c.toFixed(2)}(未平)` });
+  }
+
+  for (const e of (st.sellLog || [])) {
+    if (!e || !e.date) { warn.push("卖出记录里有一行没有日期,已跳过"); continue; }
+    const b = bd(e), sd = e.date;
+    const sh = +e.shares, sp = +e.sellPrice, bp = +e.buyPrice;
+    if (!isFinite(sh) || !sh || !isFinite(sp) || sp <= 0) {
+      warn.push(`${sd} 这笔卖出的股数或卖价是空的,没法记账(已跳过)`); continue;
+    }
+    const buyAfter = b > A.date;
+    // A post-anchor BUY with no recorded price has an unknowable cash cost. Dropping only the buy leg
+    // would book a sale of shares that were never added -- a phantom reduction. So the whole row goes,
+    // which at least stays internally consistent, and the user is told which row to fix.
+    if (buyAfter && (!isFinite(bp) || bp <= 0)) {
+      warn.push(`${sd} 这笔卖出没有买入价,买卖两腿都记不了(整条跳过)—— 去卖出记录表点"编辑"补上买价`);
+      continue;
+    }
+    if (buyAfter && sd <= A.date) {
+      err.push(`${sd} 这笔卖出的买入日 ${b} 反而在卖出日之后,记录有误`); continue;
+    }
+    if (buyAfter) {
+      flows.push({ date: b, dShares: sh, dCash: -sh * bp * (1 + C),
+                   why: `买入 ${sh} 股 @${bp.toFixed(2)}(后已平)` });
+    }
+    if (sd > A.date) {
+      flows.push({ date: sd, dShares: -sh, dCash: sh * sp * (1 - C),
+                   why: `卖出 ${sh} 股 @${sp.toFixed(2)}` });
+    }
+  }
+
+  for (const a of (st.adjustments || [])) {
+    if (!a || !a.date) { warn.push("调整流水里有一行没有日期,已跳过"); continue; }
+    if (a.date <= A.date) continue;
+    const ds = +a.shares || 0, dc = +a.cash || 0;
+    if (!ds && !dc) continue;
+    flows.push({ date: a.date, dShares: ds, dCash: dc, why: a.note || a.kind || "调整", adj: true });
+  }
+
+  return { flows, warn, err };
+}
+
+// Interest accrues SEGMENT BY SEGMENT, never on the ending balance, because it applies only to
+// max(0, -cash) -- a nonlinear function of the running balance. On the end balance it charges nothing
+// when a mid-window sell repaid the debt, and overcharges when the debt grew late.
+function ledgerRoll(A, st, asOf, opts = {}) {
+  const C = opts.costLeg != null ? opts.costLeg : SP("cost_leg", 0.001);
+  const R = opts.finRate != null ? opts.finRate : SP("fin_rate", 0.05);
+  const out = { ok: true, err: [], warn: [], interest: 0, flows: [], asOf, anchor: A };
+
+  if (!A || !A.date || !isFinite(+A.shares) || !isFinite(+A.cash)) {
+    out.ok = false; out.err.push("还没有设基准"); return out;
+  }
+  if (A.date > asOf) {
+    // Unguarded, days goes negative and max(0,-cash)*r*days/365 becomes an interest CREDIT on a debit
+    // balance, and every event falls pre-anchor -- producing a perfectly plausible number that is pure
+    // fiction. Fail closed rather than print it with a banner beside it: the figure gets read and the
+    // banner gets skipped, and this figure gates how much you are allowed to buy.
+    out.ok = false; out.err.push(`基准日 ${A.date} 在今天 ${asOf} 之后,改成一个已经过去的日子`);
+    return out;
+  }
+
+  const f = ledgerFlows(A, st, C);
+  out.warn.push(...f.warn); out.err.push(...f.err);
+
+  const byDate = new Map();
+  for (const x of f.flows) {
+    let d = x.date;
+    if (d > asOf) { out.warn.push(`${d} 的记录日期在今天之后,已按今天计入`); d = asOf; }
+    const g = byDate.get(d) || { dShares: 0, dCash: 0, why: [] };
+    g.dShares += x.dShares; g.dCash += x.dCash; g.why.push(x.why);
+    byDate.set(d, g);
+  }
+  const dates = [...byDate.keys()].sort();
+  if (!dates.length || dates[dates.length - 1] !== asOf) dates.push(asOf);
+
+  let cash = +A.cash, shares = +A.shares, prev = A.date;
+  for (const d of dates) {
+    const days = dayDiff(prev, d);
+    if (days > 0 && cash < 0) {
+      const I = -cash * R * days / 365;   // inclusive start, exclusive end: a fill on day D pays no interest for D
+      out.interest += I;
+      cash -= I;                          // the accrual itself enlarges the debit base of every later segment
+    }
+    const g = byDate.get(d);
+    if (g) {
+      cash += g.dCash; shares += g.dShares;
+      out.flows.push({ date: d, dShares: g.dShares, dCash: g.dCash, why: g.why, shares, cash });
+    }
+    prev = d;
+  }
+
+  out.shares = shares;
+  out.cash = cash;
+  // A-share retail cannot go short, so a negative count is never a position -- it means the anchor is
+  // stale or a sell got recorded twice. Reported, never clamped: clamping hides the one condition that
+  // says "this ledger has diverged from reality".
+  if (shares < 0) { out.ok = false; out.err.push(`结转出来的股数是 ${shares},负数不可能 —— 基准过期了,或者有卖出记重了`); }
+  if (!Number.isInteger(shares)) out.warn.push(`结转出来的股数 ${shares} 不是整数,记录里有小数股`);
+  return out;
+}
+
+// Marking is separate from rolling, because a missing quote must not be allowed to look like a zero
+// price: that reports equity = cash and leverage = 0, which OPENS the buy gate.
+function ledgerMark(roll, price) {
+  const o = Object.assign({}, roll, { price, stockVal: null, equity: null, lev: null, debt: null });
+  if (!roll.ok) return o;
+  if (!isFinite(price) || price <= 0) {
+    o.ok = false; o.err = roll.err.concat(["拿不到最新价,净资产和杠杆先不显示(不会当成 0)"]);
+    return o;
+  }
+  o.stockVal = roll.shares * price;
+  o.equity = o.stockVal + roll.cash;     // cash is SIGNED; never add Math.abs(cash), never add a separate debt term
+  o.debt = Math.max(0, -roll.cash);
+  o.freeCash = Math.max(0, roll.cash);
+  // A negative equity makes shares*price/equity negative, and a negative number passes `lev < 1.5` --
+  // the gate would open on exactly the insolvent account it must close on. So it is not a number here.
+  o.lev = o.equity > 0 ? o.stockVal / o.equity : null;
+  if (o.equity <= 0) o.err = o.err.concat([`净资产 ${Math.round(o.equity)} 已经 ≤0(欠款比股票市值还多),杠杆无从谈起,所有新买入一律封锁`]);
+  return o;
+}
+
+// ---- the app-facing entry point. Every consumer reads THIS, so there is exactly one account. ----
+let _ledgerMemo = null;
+function anchorResolved() {
+  const a = advState.anchor;
+  if (!a || !a.date || !isFinite(+a.shares) || !isFinite(+a.equity)) return null;
+  const p = +a.price || priceOnDate(a.date);
+  if (!isFinite(p) || p <= 0) return null;
+  return { date: a.date, shares: +a.shares, equity: +a.equity, price: p,
+           cash: +a.equity - (+a.shares) * p };
+}
+function LEDGER() {
+  const px = priceNow(), A = anchorResolved(), today = todayDateStr();
+  const key = `${advStateRev}|${px}|${today}|${A ? A.date + A.shares + A.equity + A.price : "none"}`;
+  if (_ledgerMemo && _ledgerMemo.key === key) return _ledgerMemo.val;
+  const val = ledgerMark(ledgerRoll(A, advState, today), px);
+  _ledgerMemo = { key, val };
+  return val;
+}
+// Turn the legacy typed pair into an anchor, once a price exists to freeze into it. Called after every
+// market fetch. Deliberately conservative: it only fires when there is no anchor yet and the old
+// numbers are both present, and it dates the anchor TODAY -- back-dating it would silently re-apply
+// every fill already baked into those numbers.
+function maybeMigrateAnchor() {
+  if (advState.anchor || !isFinite(+advState.totalEquity) || !isFinite(+advState.totalShares)) return false;
+  const px = priceNow();
+  if (!isFinite(px) || px <= 0) return false;
+  advState.anchor = { date: todayDateStr(), shares: +advState.totalShares,
+                      equity: +advState.totalEquity, price: px, migratedFrom: "typed" };
+  saveAdvState(advState);
+  return true;
+}
+// ================= 流水账结束 =================
 // Total stock held, marked at the current price. Authoritative: it comes from the broker, not from
 // the hand-kept tranche table, so unrecorded lots cannot make the account look less levered than it is.
 function heldValNow() {
+  const L = LEDGER();
+  if (L.ok && L.stockVal != null) return L.stockVal;
+  // No usable anchor yet (first visit, or the migration has not run because no price has arrived).
+  // Fall back to whatever was typed rather than to zero: a zero here understates leverage, which is
+  // the dangerous direction -- it would tell you there is room to buy.
   const ts = parseFloat(document.getElementById("totalSharesInput")?.value);
   const px = priceNow();
   if (ts && px) return ts * px;
-  // legacy state: only 市值 was ever typed, plus whatever the table lists
   const legacy = parseFloat(document.getElementById("baselineValueInput")?.value) || 0;
   return legacy + (advState.tranches || []).reduce((a, t) => a + (+t.shares || 0) * (px || t.cost), 0);
+}
+// Shares / cash / 净资产 as of today, rolled forward from the anchor. null when there is no usable
+// anchor -- callers must treat null as "unknown", never as 0.
+function sharesNow() {
+  const L = LEDGER();
+  if (L.ok) return L.shares;
+  const ts = parseFloat(document.getElementById("totalSharesInput")?.value);
+  return isFinite(ts) && ts ? ts : null;
+}
+function cashNow() { const L = LEDGER(); return L.ok ? L.cash : null; }
+function equityNow() {
+  const L = LEDGER();
+  if (L.ok && L.equity != null) return L.equity;
+  const eq = parseFloat(document.getElementById("totalEquityInput")?.value);
+  return isFinite(eq) && eq ? eq : null;
 }
 // Baseline is DERIVED, not declared. Asking the user to split 48,200 shares into "baseline" and
 // "adds" meant reconstructing months of history they never recorded -- and any number they guessed
@@ -2355,7 +2688,7 @@ function baseSharesNow() {
   // always self-consistent.
   const typed = parseFloat(document.getElementById("baseSharesInput")?.value);
   if (typed || typed === 0) return typed;
-  const ts = parseFloat(document.getElementById("totalSharesInput")?.value);
+  const ts = sharesNow();
   if (!ts) return null;
   const listed = (advState.tranches || []).reduce((a, t) => a + (+t.shares || 0), 0);
   return Math.max(0, ts - listed);
@@ -2371,7 +2704,7 @@ function baseValNow() {
 // Kept only so the sheet can say when the table claims MORE shares than the broker holds -- the one
 // inconsistency the derived split cannot absorb.
 function trancheShareCheck() {
-  const ts = parseFloat(document.getElementById("totalSharesInput")?.value);
+  const ts = sharesNow();
   if (!ts) return null;
   const listed = (advState.tranches || []).reduce((a, t) => a + (+t.shares || 0), 0);
   if (listed > ts) return { kind: "over", implied: ts, listed, ok: false };
@@ -2383,122 +2716,279 @@ function trancheShareCheck() {
 function renderBalanceSheet() {
   const box = document.getElementById("balanceSheetBox");
   if (!box) return;
-  const eq = parseFloat(document.getElementById("totalEquityInput").value);
-  const bv = baseValNow();
-  const haveStock = !!parseFloat(document.getElementById("totalSharesInput")?.value)
-                 || !!parseFloat(document.getElementById("baselineValueInput")?.value);
-  if (!eq || !haveStock) {
-    box.innerHTML = `<div class="todo-sub">填好上面的「净资产」和「总股数」后,这里会自动出表。</div>`;
+  const y = v => v.toLocaleString("zh-CN", { maximumFractionDigits: 0 });
+  const sign = v => (v >= 0 ? "+" : "−") + y(Math.abs(v));
+  const col = v => v >= 0 ? "var(--green)" : "var(--red)";
+  const L = LEDGER();
+
+  if (!L.ok) {
+    // Fail closed. The old sheet would render whatever the four typed numbers implied; now a broken
+    // ledger prints WHY it is broken and nothing else, because these figures gate how much you may buy.
+    // "no anchor yet" is the first-visit state, not an error to be reported at the user -- it gets the
+    // instructions. Everything else is a real fault and gets said plainly.
+    const virgin = L.err.length === 1 && L.err[0] === "还没有设基准";
+    const msgs = (L.err.length && !virgin) ? L.err
+      : ["设好上面的基准(基准日、那天的股数、那天的净资产)后,这里会自动出表。",
+         "之后每笔成交在\"今日操作清单\"里勾一下,股数和现金自己往后滚,不用回来改基准。"];
+    box.innerHTML = `<div class="todo-sub" style="line-height:1.8">${msgs.map(m => `· ${m}`).join("<br>")}</div>`;
     return;
   }
-  const px = priceNow();
+
+  const px = L.price;
   const priceNote = currentStockLast ? `现价 ${currentStockLast.toFixed(2)}`
                   : (currentStockOpen ? `今开 ${currentStockOpen.toFixed(2)}`
-                  : (currentStockPrevClose ? `昨收 ${currentStockPrevClose.toFixed(2)}` : "无实时价,按成本价估"));
+                  : `昨收 ${currentStockPrevClose.toFixed(2)}`);
+  const A = L.anchor;
   const trs = advState.tranches || [];
-  const ts = parseFloat(document.getElementById("totalSharesInput")?.value) || 0;
-  const bsh = baseSharesNow() ?? 0;
+  const bv = baseValNow(), bsh = baseSharesNow() ?? 0;
   const baseTypedRaw = document.getElementById("baseSharesInput")?.value;
   const baseTyped = baseTypedRaw !== "" && baseTypedRaw != null;
-  const held = heldValNow();
-  const trVal = Math.max(0, held - bv);       // 总持仓 − 底仓, by definition
-  const debtRaw = document.getElementById("marginDebtInput")?.value;
-  const debtKnown = debtRaw !== "" && debtRaw != null && isFinite(parseFloat(debtRaw));
-  const debt = debtKnown ? Math.abs(parseFloat(debtRaw)) : 0;
-  // 净资产 = 股票 + 其他资产 − 负债  =>  其他资产 = 净资产 + 负债 − 股票
-  // Without a debt figure this collapses to a single net number, which is all that can honestly be said.
-  const other = eq + debt - held;
-  const sign0 = v => (v < 0 ? "−" : "") + y(Math.abs(v));
   const trShares = trs.reduce((a, t) => a + (+t.shares || 0), 0);
-  const listedShares = trShares;
-  const trCost = trs.reduce((s, t) => s + t.shares * t.cost, 0);
-  const trPnl = listedShares && px ? listedShares * px - trCost : 0;
-  const lev = held / eq;
+  const trCost = trs.reduce((s, t) => s + (+t.shares || 0) * (+t.cost || 0), 0);
+  const trVal = Math.max(0, L.stockVal - bv);
+  const trPnl = trShares ? trShares * px - trCost : 0;
   const cap = SP("lev_cap", 1.5), base = SP("base_frac", 0.9), band = SP("rebalance_band", 0.03);
   const C = SP("cost_leg", 0.001);
   const realized = (advState.sellLog || []).reduce((s, e) => {
     const sh = +e.shares || 0, b = +e.buyPrice || 0, sp = +e.sellPrice || 0;
     return s + sh * (sp * (1 - C) - b * (1 + C));
   }, 0);
-  const y = v => v.toLocaleString("zh-CN", { maximumFractionDigits: 0 });
-  const sign = v => (v >= 0 ? "+" : "−") + y(Math.abs(v));
-  const col = v => v >= 0 ? "var(--green)" : "var(--red)";
 
-  const baseW = bv / eq;
-  let baseMsg;
+  const baseW = bv / L.equity;
+  let baseMsg, rebalBtn = "";
   if (Math.abs(baseW - base) <= band) {
     baseMsg = `<span style="color:var(--green)">在 ±${(band*100).toFixed(0)}% 带内,不用动</span>`;
   } else {
-    const target = base * eq;
-    baseMsg = `<span style="color:var(--amber)">偏离带宽,建议${target > bv ? "买入" : "卖出"} 约 ${y(Math.abs(target - bv))} 元调回 ${(base*100).toFixed(0)}%</span>`;
+    const target = base * L.equity, need = target - bv;
+    const lots = Math.round((need / px) / 100) * 100;
+    baseMsg = `<span style="color:var(--amber)">偏离带宽,建议${need > 0 ? "买入" : "卖出"} 约 ${y(Math.abs(need))} 元(${y(Math.abs(lots))} 股)调回 ${(base*100).toFixed(0)}%</span>`;
+    // THE RECORDING PATH THAT DID NOT EXIST. The sheet has always been able to say "buy about X to get
+    // back to 90%", and there was no way anywhere in the page to say it had been done -- so the largest
+    // share movement the strategy produces was invisible to every number on this page, and the same
+    // advice was re-issued forever while real leverage moved. One click now books it as an adjustment.
+    if (lots) rebalBtn = `<button class="add-btn" id="recordRebalBtn" data-lots="${lots}" data-px="${px}"
+        style="margin-top:8px; padding:5px 11px; font-size:12px">已按这个数调仓了 → 记一笔(${lots > 0 ? "买入" : "卖出"} ${y(Math.abs(lots))} 股 @${px.toFixed(2)})</button>`;
   }
+
+  const rolled = L.flows.length;
+  const anchorLine = `基准 ${A.date}:${y(A.shares)} 股 / 净资产 ${y(A.equity)} / 计价 ${A.price.toFixed(2)}`
+    + `  →  倒推现金 ${sign(A.cash)}`;
+
+  // THE ONE AMBIGUITY IN THIS WHOLE SCHEME, MADE EXPLICIT INSTEAD OF ASSUMED.
+  // The anchor is an END-OF-DAY snapshot, so a fill dated ON the anchor date is treated as already
+  // inside it -- which is right for a fill that had already happened when you read the broker, and
+  // WRONG for one that happens afterwards on the same day. Nothing in the data can distinguish the two:
+  // fills carry a date, not a time. So when the collision actually exists, it is put to the user as a
+  // one-click choice. Guessing either way here would silently drop or double-count a whole trade.
+  const sameDayFills = []
+    .concat((advState.tranches || []).filter(t => t.date === A.date).map(t => `买入 ${t.shares} 股 @${(+t.cost).toFixed(2)}`))
+    .concat((advState.sellLog || []).filter(e => e.date === A.date).map(e => `卖出 ${e.shares} 股 @${(+e.sellPrice).toFixed(2)}`));
+  const sameDayBox = sameDayFills.length ? `
+    <div style="background:#1a1410; border:1px solid var(--amber); border-radius:8px; padding:10px 13px; margin-top:12px; font-size:13px; line-height:1.8">
+      <b style="color:var(--amber)">基准日 ${A.date} 当天还有 ${sameDayFills.length} 笔成交记录</b>
+      —— ${sameDayFills.join("、")}。<br>
+      基准是"那天收盘后"的快照,所以这几笔<b>现在被当成已经包含在 ${y(A.shares)} 股里面了</b>。
+      如果你填基准的时候这几笔还没成交,那它们就漏算了,点右边这个按钮把基准日退到上一天即可。
+      <div style="margin-top:8px"><button class="add-btn" id="anchorBackDateBtn"
+        style="padding:5px 11px; font-size:12px">这几笔没算进去 → 把基准日退到上一天</button></div>
+    </div>` : "";
 
   box.innerHTML = `
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px">
     <div style="background:#10141a; border:1px solid var(--border); border-radius:8px; padding:11px 13px">
       <div style="font-weight:600; margin-bottom:7px">资产</div>
       <table style="width:100%; font-size:13px">
-        <tr><td>底仓股票${!ts ? "" : (baseTyped ? `(${y(bsh)} 股,你填的)`
-              : `(${y(bsh)} 股 = 总 ${y(ts)} − 加仓 ${y(trShares)})`)}</td>
+        <tr><td>底仓股票(${y(bsh)} 股${baseTyped ? ",你填的" : ` = 当前 ${y(L.shares)} − 加仓 ${y(trShares)}`})</td>
             <td style="text-align:right">${y(bv)}</td></tr>
         <tr><td>加仓股票(${y(trShares)} 股,${trs.length} 笔)</td><td style="text-align:right">${y(trVal)}</td></tr>
-        <tr><td>${debtKnown ? "现金及其他资产" : "其他(现金+其他资产−负债 的净额)"}</td>
-            <td style="text-align:right; color:${other < 0 ? "var(--red)" : "inherit"}">${sign0(other)}</td></tr>
+        <tr><td>现金${L.freeCash > 0 ? "" : `<span style="color:var(--muted)">(为负,见右侧欠款)</span>`}</td>
+            <td style="text-align:right">${y(L.freeCash)}</td></tr>
         <tr style="border-top:1px solid var(--border); font-weight:600">
-          <td>资产合计</td><td style="text-align:right">${debtKnown ? y(held + other) : "—"}</td></tr>
+          <td>资产合计</td><td style="text-align:right">${y(L.stockVal + L.freeCash)}</td></tr>
       </table>
-      ${other < 0 && debtKnown ? `<div style="color:var(--amber); font-size:12px; margin-top:6px">
-        资产不该是负数——净资产、总股数、融资欠款三个数里至少有一个填错或过期了</div>` : ""}
     </div>
     <div style="background:#10141a; border:1px solid var(--border); border-radius:8px; padding:11px 13px">
       <div style="font-weight:600; margin-bottom:7px">负债 与 净资产</div>
       <table style="width:100%; font-size:13px">
-        <tr><td>融资欠款</td><td style="text-align:right; color:${debtKnown && debt ? "var(--red)" : "var(--muted)"}">
-          ${debtKnown ? y(debt) : "未填"}</td></tr>
-        <tr><td style="color:var(--muted)">&nbsp;</td><td></td></tr>
-        <tr><td>净资产(你自己的钱)</td><td style="text-align:right">${y(eq)}</td></tr>
+        <tr><td>融资欠款(现金为负的部分)</td>
+            <td style="text-align:right; color:${L.debt ? "var(--red)" : "var(--muted)"}">${L.debt ? y(L.debt) : "无"}</td></tr>
+        <tr><td style="color:var(--muted)">其中已计提融资利息</td>
+            <td style="text-align:right; color:var(--muted)">${L.interest ? y(L.interest) : "0"}</td></tr>
+        <tr><td>净资产(你自己的钱)</td><td style="text-align:right; font-weight:600">${y(L.equity)}</td></tr>
         <tr style="border-top:1px solid var(--border); font-weight:600">
-          <td>合计</td><td style="text-align:right">${debtKnown ? y(debt + eq) : "—"}</td></tr>
+          <td>合计</td><td style="text-align:right">${y(L.debt + L.equity)}</td></tr>
       </table>
-      ${debtKnown ? "" : `<div style="color:var(--muted); font-size:12px; margin-top:6px">
-        填了「融资欠款」才能把现金和负债分开列。不填不影响杠杆和底仓权重。</div>`}
+      ${L.equity <= 0 ? `<div style="color:var(--red); font-size:12px; margin-top:6px">
+        净资产已经 ≤0 —— 基准现金的符号填反了,或者有卖出没记进来</div>` : ""}
     </div>
   </div>
   <div style="background:#10141a; border:1px solid var(--border); border-radius:8px; padding:11px 13px; margin-top:12px; font-size:13px; line-height:1.85">
-    <b>股票总市值</b> ${ts ? `${y(ts)} 股 × ${px ? px.toFixed(2) : "?"} = ` : ""}${y(held)} 元
-      —— 应该和券商 App 里这只股票的市值对得上<br>
-    <b>杠杆</b> ${y(held)} ÷ ${y(eq)} =
-      <b style="color:${lev >= cap ? "var(--red)" : (lev > cap - 0.05 ? "var(--amber)" : "var(--green)")}">${lev.toFixed(3)} 倍</b>
+    <b>股票总市值</b> ${y(L.shares)} 股 × ${px.toFixed(2)} = ${y(L.stockVal)} 元 ——
+      这是<b>唯一的对账口</b>:股数是从基准一笔笔加减出来的,和券商 App 对不上就说明有成交没记或记重了,
+      后面的净资产、杠杆、底仓占比、收益曲线全跟着错。对不上先用上面的"核对"看差多少,别硬着头皮往下用。<br>
+    <b>杠杆</b> ${y(L.stockVal)} ÷ ${y(L.equity)} =
+      <b style="color:${L.lev == null ? "var(--red)" : (L.lev >= cap ? "var(--red)" : (L.lev > cap - 0.05 ? "var(--amber)" : "var(--green)"))}">${L.lev == null ? "算不出" : L.lev.toFixed(3) + " 倍"}</b>
       (软顶 ${cap})<br>
-    <b>底仓权重</b> ${(baseW*100).toFixed(1)}%(目标 ${(base*100).toFixed(0)}%)—— ${baseMsg}<br>
+    <b>底仓权重</b> ${(baseW*100).toFixed(1)}%(目标 ${(base*100).toFixed(0)}%)—— ${baseMsg}${rebalBtn}<br>
     <b>加仓浮动盈亏</b> <span style="color:${col(trPnl)}">${sign(trPnl)} 元</span>
-      ${listedShares ? `(${y(listedShares)} 股:成本 ${y(trCost)} → 市值 ${y(listedShares*px)}${trCost ? `,${(trPnl/trCost*100).toFixed(2)}%` : ""})`
-                     : "(加仓表是空的——全部算底仓)"}<br>
+      ${trShares ? `(${y(trShares)} 股:成本 ${y(trCost)} → 市值 ${y(trShares*px)}${trCost ? `,${(trPnl/trCost*100).toFixed(2)}%` : ""})`
+                 : "(加仓表是空的——全部算底仓)"}<br>
     <b>已实现盈亏</b> <span style="color:${col(realized)}">${sign(realized)} 元</span>
       (${(advState.sellLog || []).length} 笔卖出,已扣双边手续费 ${(C*100).toFixed(1)}%)<br>
-    <span style="color:var(--muted)">计价基准: ${priceNote} · 只有「股票总市值」是按你填的股数×现价算出来的;
-      ${debtKnown ? "现金及其他资产" : "右边那个净额"}是用会计等式倒推的,不是观测值</span>
+    <span style="color:var(--muted)">${anchorLine}<br>
+      往后结转 ${rolled} 个有变动的日子,计价基准 ${priceNote} ——
+      股数和现金都是从基准日按成交记录一笔笔结转来的,唯一的外部输入是最新价,没有任何一格是用会计等式倒推的。</span>
+    ${L.warn.length ? `<br><span style="color:var(--amber)">${L.warn.map(w => `⚠️ ${w}`).join("<br>")}</span>` : ""}
+    ${L.err.length ? `<br><span style="color:var(--red)">${L.err.map(w => `⛔ ${w}`).join("<br>")}</span>` : ""}
     ${(() => {
       const c = trancheShareCheck();
       if (!c || c.ok) return "";
       if (c.kind === "over") {
-        return `<br><span style="color:var(--red)">⚠️ 加仓表里记了 ${y(c.listed)} 股,超过你持有的
-          ${y(c.implied)} 股 —— 表里有多记的,请删掉已经卖掉的那几笔。</span>`;
+        return `<br><span style="color:var(--red)">⚠️ 加仓表里记了 ${y(c.listed)} 股,超过当前持有的
+          ${y(c.implied)} 股 —— 表里有多记的。<b>别直接删</b>:删一行等于"股数消失、现金没进来",
+          流水账会少算这笔的市值。已经卖掉的请走"老仓位止盈"勾选,或到卖出记录里补一笔。</span>`;
       }
-      return `<br><span style="color:var(--amber)">提示:总股数 − 底仓 = ${y(c.implied)} 股,
+      return `<br><span style="color:var(--amber)">提示:当前股数 − 底仓 = ${y(c.implied)} 股,
         加仓表里是 ${y(c.listed)} 股,差 ${y(Math.abs(c.implied - c.listed))} 股。
-        不影响杠杆(它按总股数算);只是这 ${y(Math.abs(c.implied - c.listed))} 股没有成本记录,
+        不影响杠杆(它按当前总股数算);只是这 ${y(Math.abs(c.implied - c.listed))} 股没有成本记录,
         所以不会提醒你给它们挂止盈单。想省事就把「底仓股数」清空,让它自动算。</span>`;
     })()}
   </div>`;
+
+  box.insertAdjacentHTML("beforeend", sameDayBox);
+
+  const bdb = document.getElementById("anchorBackDateBtn");
+  if (bdb) bdb.addEventListener("click", () => {
+    // Back to the previous CALENDAR day, not the previous trading day: the only job of the date is to
+    // sit strictly before those fills, and a calendar day always does while a trading-day lookup would
+    // need the bar series to be loaded. The frozen 计价 is left alone -- it is the mark you actually
+    // valued the snapshot at, and re-deriving it would change the cash the user already reconciled.
+    const d = new Date(Date.UTC(+A.date.slice(0,4), +A.date.slice(5,7)-1, +A.date.slice(8,10)) - 86400000);
+    advState.anchor = Object.assign({}, advState.anchor, { date: d.toISOString().slice(0,10) });
+    saveAdvState(advState);
+    renderAccountInputs();
+    renderAdjTable(); renderBalanceSheet(); renderBaselineWeight(); renderLevEcho();
+    renderExportView(); renderReconcile(); renderOpenPriceDecision();
+  });
+
+  const rb = document.getElementById("recordRebalBtn");
+  if (rb) rb.addEventListener("click", () => {
+    const lots = parseFloat(rb.dataset.lots), p = parseFloat(rb.dataset.px);
+    const Cc = SP("cost_leg", 0.001);
+    advState.adjustments.push({
+      date: todayDateStr(), kind: "底仓再平衡", shares: lots,
+      cash: lots > 0 ? -lots * p * (1 + Cc) : -lots * p * (1 - Cc),
+      note: `底仓再平衡 ${lots > 0 ? "买入" : "卖出"} ${Math.abs(lots)} 股 @${p.toFixed(2)}`,
+    });
+    saveAdvState(advState);
+    renderAdjTable(); renderBalanceSheet(); renderBaselineWeight(); renderLevEcho();
+    renderExportView(); renderOpenPriceDecision();
+  });
 }
+
+// ---- 调整流水:成交清单以外的一切股数/现金变动 ----
+function renderAdjTable() {
+  const tbody = document.querySelector("#adjTable tbody");
+  const empty = document.getElementById("adjEmpty");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  const rows = (advState.adjustments || []).slice().sort((a, b) => (a.date > b.date ? 1 : -1));
+  if (empty) empty.style.display = rows.length ? "none" : "block";
+  const y = v => v.toLocaleString("zh-CN", { maximumFractionDigits: 0 });
+  rows.forEach(r => {
+    const i = advState.adjustments.indexOf(r);
+    const tr = document.createElement("tr");
+    const ds = +r.shares || 0, dc = +r.cash || 0;
+    tr.innerHTML = `<td>${r.date}</td><td>${r.kind || "调整"}</td>
+      <td style="color:${ds >= 0 ? "var(--green)" : "var(--red)"}">${ds ? (ds > 0 ? "+" : "−") + y(Math.abs(ds)) : "—"}</td>
+      <td style="color:${dc >= 0 ? "var(--green)" : "var(--red)"}">${dc ? (dc > 0 ? "+" : "−") + y(Math.abs(dc)) : "—"}</td>
+      <td style="color:var(--muted); font-size:12px">${(r.note || "").replace(/[<>]/g, "")}</td>
+      <td><button class="add-btn" data-adj-del="${i}" style="padding:3px 9px; font-size:12px; margin-top:0">删除</button></td>`;
+    tbody.appendChild(tr);
+  });
+  tbody.querySelectorAll("[data-adj-del]").forEach(b => b.addEventListener("click", () => {
+    advState.adjustments.splice(parseInt(b.dataset.adjDel), 1);
+    saveAdvState(advState);
+    renderAdjTable(); renderBalanceSheet(); renderBaselineWeight(); renderLevEcho();
+    renderExportView(); renderOpenPriceDecision();
+  }));
+}
+
+// ---- 核对:把结转结果和券商对一下,差额可以一键记成调整,而不是逼你重填账 ----
+function renderReconcile() {
+  const box = document.getElementById("reconResultBox");
+  if (!box) return;
+  const L = LEDGER();
+  const bs = parseFloat(document.getElementById("reconSharesInput").value);
+  const be = parseFloat(document.getElementById("reconEquityInput").value);
+  if (!L.ok) { box.innerHTML = `<div class="todo-sub">先把基准设好再核对。</div>`; return; }
+  if (!isFinite(bs) && !isFinite(be)) {
+    box.innerHTML = `<div class="todo-sub">填上券商现在显示的股数(净资产可选),点"核对"。</div>`; return;
+  }
+  const y = v => v.toLocaleString("zh-CN", { maximumFractionDigits: 0 });
+  const sign = v => (v >= 0 ? "+" : "−") + y(Math.abs(v));
+  const dS = isFinite(bs) ? bs - L.shares : null;
+  const dE = isFinite(be) ? be - L.equity : null;
+  const okS = dS === null || Math.abs(dS) < 1;
+  const okE = dE === null || Math.abs(dE) < Math.max(50, Math.abs(L.equity) * 0.001);
+  const rows = [];
+  if (dS !== null) rows.push(`股数:账本 ${y(L.shares)} vs 券商 ${y(bs)} → 差 <b style="color:${okS ? "var(--green)" : "var(--red)"}">${okS ? "0" : sign(dS)}</b> 股`);
+  if (dE !== null) rows.push(`净资产:账本 ${y(L.equity)} vs 券商 ${y(be)} → 差 <b style="color:${okE ? "var(--green)" : "var(--amber)"}">${okE ? "对得上" : sign(dE)}</b> 元`);
+  let verdict, actions = "";
+  if (okS && okE) {
+    verdict = `<span style="color:var(--green); font-weight:600">✓ 对上了,账本没问题</span>`;
+  } else {
+    verdict = `<span style="color:var(--amber); font-weight:600">对不上 —— 先想想是不是有这些没记:
+      底仓再平衡、入金出金、分红、部分成交、成交价和挂单价不同。属于哪一类就去上面"调整流水"记那一类,
+      别用下面两个按钮糊过去。</span>`;
+    actions = `<div style="display:flex; gap:9px; flex-wrap:wrap; margin-top:10px">
+      <button class="add-btn" id="reconAsAdjBtn" style="padding:5px 11px; font-size:12px">说不清 → 记成一笔"对账差额"</button>
+      <button class="add-btn" id="reconResetBtn" style="padding:5px 11px; font-size:12px">以券商为准 → 把基准重设到今天</button></div>
+      <div class="todo-sub" style="margin-top:7px">"记成对账差额"保留全部历史,只补一行让账本对上;
+      "重设基准"会丢掉基准日之前的结转依据,收益曲线的起点也跟着挪到今天,所以只在差额实在查不出来时用。</div>`;
+  }
+  box.innerHTML = `<div style="background:#10141a; border:1px solid var(--border); border-radius:8px; padding:11px 13px; font-size:13px; line-height:1.9">
+    ${rows.join("<br>")}<br>${verdict}${actions}</div>`;
+
+  const b1 = document.getElementById("reconAsAdjBtn");
+  if (b1) b1.addEventListener("click", () => {
+    const px = L.price;
+    // A share difference also moves cash (those shares were bought or sold with money), so the cash
+    // leg is derived at the current mark and the residual equity gap is added on top. Recording only
+    // the shares would fix the reconciliation and break the equity.
+    const dCashFromShares = dS ? -dS * px : 0;
+    const dCashExtra = dE !== null ? (dE - (dS ? dS * px + dCashFromShares : 0)) : 0;
+    advState.adjustments.push({
+      date: todayDateStr(), kind: "对账差额", shares: dS || 0,
+      cash: dCashFromShares + dCashExtra,
+      note: `核对差额(券商 ${isFinite(bs) ? y(bs) + " 股" : ""}${isFinite(be) ? " / " + y(be) + " 元" : ""})—— 原因未查明`,
+    });
+    saveAdvState(advState);
+    renderAdjTable(); renderBalanceSheet(); renderBaselineWeight(); renderLevEcho();
+    renderExportView(); renderOpenPriceDecision(); renderReconcile();
+  });
+  const b2 = document.getElementById("reconResetBtn");
+  if (b2) b2.addEventListener("click", () => {
+    if (!isFinite(bs)) { alert("重设基准需要券商的股数"); return; }
+    const px = L.price;
+    const eq = isFinite(be) ? be : (bs * px + L.cash);
+    if (!confirm(`把基准重设为 ${todayDateStr()}:${bs} 股 / 净资产 ${Math.round(eq)} / 计价 ${px.toFixed(2)}?\n\n`
+               + `基准日之前的结转依据会失效,收益曲线起点也会挪到今天。加仓表和卖出记录都保留不动。`)) return;
+    advState.anchor = { date: todayDateStr(), shares: bs, equity: eq, price: px, migratedFrom: "reconcile" };
+    saveAdvState(advState);
+    renderAccountInputs();
+    renderAdjTable(); renderBalanceSheet(); renderBaselineWeight(); renderLevEcho();
+    renderExportView(); renderOpenPriceDecision(); renderReconcile();
+  });
+}
+
 
 function renderLevEcho() {
   const box = document.getElementById("levEchoBox");
-  const eq = parseFloat(document.getElementById("totalEquityInput").value);
+  const eq = equityNow();
   const bv = baseValNow();
   // bv can legitimately be 0 (every share recorded as a tranche); gate on whether ANY stock is known
-  const anyStock = !!parseFloat(document.getElementById("totalSharesInput")?.value)
+  const anyStock = !!sharesNow()
                 || !!parseFloat(document.getElementById("baselineValueInput")?.value);
   if (!eq || !anyStock) { box.style.display = "none"; return; }
   const px = priceNow();
@@ -2524,25 +3014,63 @@ function renderLevEcho() {
     + ` · 底仓占净值 ${(bv/eq*100).toFixed(1)}%(目标 ${(base*100).toFixed(0)}%)<br>`
     + `<span style="color:${col}">${msg}</span>`;
 }
-document.getElementById("totalEquityInput").addEventListener("input", (e) => {
-  advState.totalEquity = e.target.value ? parseFloat(e.target.value) : null;
-  saveAdvState(advState);
-  renderExportView();
-  renderOpenPriceDecision();
-});
-for (const [id, key] of [["totalSharesInput", "totalShares"], ["baseSharesInput", "baseShares"],
-                         ["marginDebtInput", "marginDebt"]]) {
-  document.getElementById(id).addEventListener("input", (e) => {
-    advState[key] = e.target.value ? parseFloat(e.target.value) : null;
-    // keep the legacy field in step so anything still reading it, and the CSV, stay correct
-    const px = priceNow();
-    if (px) advState.baselineValue = baseValNow() || null;
-    saveAdvState(advState);
-    renderExportView();
-    renderBaselineWeight();
-    renderOpenPriceDecision();
-  });
+// The three anchor boxes write ONE object. They are read together every time, because a half-typed
+// anchor (a date but no shares) must not be treated as a valid basis -- anchorResolved() returns null
+// for it, which fails closed everywhere downstream.
+function readAnchorFromInputs() {
+  const d = document.getElementById("anchorDateInput").value.trim();
+  const sh = parseFloat(document.getElementById("totalSharesInput").value);
+  const eq = parseFloat(document.getElementById("totalEquityInput").value);
+  const pxTyped = parseFloat(document.getElementById("anchorPriceInput").value);
+  if (!d || !isFinite(sh) || !isFinite(eq)) { advState.anchor = null; return; }
+  // A blank 计价 resolves from the bar series at save time and is then STORED, so the anchor's cash
+  // stops moving. Left unresolved it would be re-derived from a live quote on every render and the
+  // basis would breathe with the price, which is the one thing a basis must not do.
+  const px = isFinite(pxTyped) && pxTyped > 0 ? pxTyped : priceOnDate(d);
+  advState.anchor = { date: d, shares: sh, equity: eq,
+                      price: isFinite(px) && px > 0 ? px : null,
+                      migratedFrom: advState.anchor?.migratedFrom ?? "typed" };
 }
+function onAnchorEdited() {
+  readAnchorFromInputs();
+  // Legacy mirrors, kept so an older cached copy of this page (or a half-migrated Gist) still shows
+  // something sane rather than blanks.
+  advState.totalShares = advState.anchor?.shares ?? null;
+  advState.totalEquity = advState.anchor?.equity ?? null;
+  saveAdvState(advState);
+  renderExportView(); renderBaselineWeight(); renderLevEcho();
+  renderBalanceSheet(); renderReconcile(); renderOpenPriceDecision();
+}
+for (const id of ["anchorDateInput", "totalSharesInput", "totalEquityInput", "anchorPriceInput"]) {
+  document.getElementById(id).addEventListener("input", onAnchorEdited);
+}
+document.getElementById("baseSharesInput").addEventListener("input", (e) => {
+  advState.baseShares = e.target.value ? parseFloat(e.target.value) : null;
+  const px = priceNow();
+  if (px) advState.baselineValue = baseValNow() || null;   // legacy mirror
+  saveAdvState(advState);
+  renderExportView(); renderBaselineWeight(); renderLevEcho();
+  renderBalanceSheet(); renderOpenPriceDecision();
+});
+document.getElementById("reconCheckBtn").addEventListener("click", renderReconcile);
+document.getElementById("addAdjBtn").addEventListener("click", () => {
+  const d = document.getElementById("newAdjDate").value.trim() || todayDateStr();
+  const kind = document.getElementById("newAdjKind").value;
+  const sh = parseFloat(document.getElementById("newAdjShares").value) || 0;
+  const cash = parseFloat(document.getElementById("newAdjCash").value) || 0;
+  if (!sh && !cash) {
+    const el = document.getElementById("newAdjShares");
+    el.style.borderColor = "var(--red)";
+    setTimeout(() => { el.style.borderColor = ""; }, 1500);
+    return;
+  }
+  advState.adjustments.push({ date: d, kind, shares: sh, cash, note: kind });
+  saveAdvState(advState);
+  document.getElementById("newAdjShares").value = "";
+  document.getElementById("newAdjCash").value = "";
+  renderAdjTable(); renderBalanceSheet(); renderBaselineWeight(); renderLevEcho();
+  renderExportView(); renderReconcile(); renderOpenPriceDecision();
+});
 document.getElementById("baselineValueInput").addEventListener("input", (e) => {
   advState.baselineValue = e.target.value ? parseFloat(e.target.value) : null;
   saveAdvState(advState);
