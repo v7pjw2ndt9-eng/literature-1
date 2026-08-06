@@ -128,28 +128,77 @@
                  background: var(--amber); margin-left: 6px; vertical-align: 1px; }
 
   /* sheets: centred dialog on desktop, bottom sheet on phones */
+  /* Transitions need the element to stay in the layout, so open/closed is opacity+visibility rather
+     than display:none -- display cannot be animated. pointer-events:none keeps the closed sheet from
+     swallowing clicks meant for the page underneath. */
   .sheet-back { position: fixed; inset: 0; background: rgba(4,7,11,.72); backdrop-filter: blur(3px);
-                z-index: 90; display: none; }
-  .sheet-back.open { display: block; }
-  .sheet { position: fixed; z-index: 91; display: none; background: var(--bg);
+                z-index: 90; opacity: 0; visibility: hidden; pointer-events: none;
+                transition: opacity .2s ease, visibility .2s; }
+  .sheet-back.open { opacity: 1; visibility: visible; pointer-events: auto; }
+  .sheet { position: fixed; z-index: 91; display: flex; flex-direction: column; background: var(--bg);
            border: 1px solid var(--border); border-radius: 18px; overflow: hidden;
-           left: 50%; top: 50%; transform: translate(-50%, -50%);
+           left: 50%; top: 50%;
            width: min(940px, calc(100vw - 40px)); max-height: calc(100vh - 60px);
-           box-shadow: 0 24px 70px rgba(0,0,0,.6); }
-  .sheet.open { display: flex; flex-direction: column; }
-  .sheet-head { display: flex; align-items: center; gap: 12px; padding: 15px 20px;
-                border-bottom: 1px solid var(--border); flex-shrink: 0; }
+           box-shadow: 0 24px 70px rgba(0,0,0,.6);
+           opacity: 0; visibility: hidden; pointer-events: none;
+           transform: translate(-50%, -47%) scale(.975);
+           transition: opacity .2s ease, transform .26s cubic-bezier(.32,.72,0,1), visibility .2s; }
+  .sheet.open { opacity: 1; visibility: visible; pointer-events: auto;
+                transform: translate(-50%, -50%) scale(1); }
+  .sheet-head { display: flex; align-items: center; gap: 10px; padding: 13px 16px;
+                border-bottom: 1px solid var(--border); flex-shrink: 0; background: var(--bg); }
   .sheet-head .h { font-size: 16px; font-weight: 600; flex: 1; }
+  /* 返回 sits on the LEFT and is always visible. A long sheet (使用说明 is ~6000 characters) scrolls
+     inside .sheet-body while the header stays put, so the way out never scrolls off screen. */
+  .sheet-b { background: none; border: 1px solid var(--border); color: var(--text); cursor: pointer;
+             border-radius: 9px; padding: 7px 13px; font-size: 13.5px; font-family: inherit;
+             flex-shrink: 0; transition: border-color .15s, background .15s, transform .1s; }
+  .sheet-b:hover { border-color: #3a4152; background: #1c212a; }
+  .sheet-b:active { transform: scale(.96); }
   .sheet-x { background: none; border: 1px solid var(--border); color: var(--muted); cursor: pointer;
              border-radius: 8px; width: 30px; height: 30px; font-size: 17px; line-height: 1;
-             font-family: inherit; flex-shrink: 0; }
+             font-family: inherit; flex-shrink: 0; transition: color .15s, border-color .15s; }
   .sheet-x:hover { color: var(--text); border-color: #3a4152; }
-  .sheet-body { padding: 18px 20px 22px; overflow-y: auto; }
+  .sheet-body { padding: 18px 20px 22px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
   .sheet-body > .card { margin-bottom: 14px; }
   .sheet-body .row-title:first-child { margin-top: 0 !important; }
+  .sheet-grab { display: none; }
   @media (max-width: 720px) {
-    .sheet { left: 0; top: auto; bottom: 0; transform: none; width: 100vw;
-             border-radius: 16px 16px 0 0; max-height: 90vh; }
+    .sheet { left: 0; top: auto; bottom: 0; width: 100vw;
+             border-radius: 16px 16px 0 0; max-height: 92vh;
+             transform: translateY(100%); }
+    .sheet.open { transform: translateY(0); }
+    .sheet-head { padding: 6px 14px 12px; flex-wrap: wrap; }
+    .sheet-b { padding: 9px 15px; font-size: 15px; }      /* thumb-sized on a phone */
+    .sheet-x { display: none; }                            /* 返回 is enough; two exits is clutter */
+    .sheet-grab { display: block; width: 100%; text-align: center; padding: 7px 0 3px; }
+    .sheet-grab i { display: inline-block; width: 38px; height: 4px; border-radius: 2px;
+                    background: #333b49; }
+    .sheet-head .h { width: 100%; order: 3; font-size: 15px; }
+  }
+
+  /* ---------- 动效 ---------- */
+  @keyframes riseIn { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: none; } }
+  .sec { animation: riseIn .4s cubic-bezier(.22,.68,0,1) both; }
+  .sec:nth-of-type(2) { animation-delay: .05s; }
+  .sec:nth-of-type(3) { animation-delay: .1s; }
+  .sec:nth-of-type(4) { animation-delay: .15s; }
+  .tile { animation: riseIn .38s cubic-bezier(.22,.68,0,1) both; }
+  .card.decision { transition: box-shadow .3s; }
+  .tb-btn { transition: border-color .15s, background .15s, transform .1s; }
+  .tb-btn:active { transform: scale(.96); }
+  .add-btn, button { transition: transform .1s, filter .15s; }
+  .add-btn:active { transform: scale(.97); }
+  /* A tile whose number just changed gets one soft pulse -- enough to notice a fill was booked,
+     not enough to be a distraction on every render. */
+  @keyframes tileFlash { 0% { border-color: var(--blue); } 100% { border-color: var(--border); } }
+  .tile.flash { animation: riseIn .38s cubic-bezier(.22,.68,0,1) both, tileFlash 1.1s ease-out .3s; }
+  .todo-item { animation: riseIn .3s ease both; }
+  @media (prefers-reduced-motion: reduce) {
+    .sec, .tile, .todo-item { animation: none !important; }
+    .sheet, .sheet-back { transition: opacity .01s !important; }
+    .sheet { transform: translate(-50%, -50%) !important; }
+    @media (max-width: 720px) { .sheet { transform: translateY(0) !important; } }
   }
 </style>
 </head>
@@ -259,7 +308,9 @@
 <div class="sheet-back" id="sheetBack"></div>
 
 <div class="sheet" id="sheetBasis" role="dialog" aria-modal="true" aria-label="基准与资产负债表">
-  <div class="sheet-head"><div class="h">基准与资产负债表</div>
+  <div class="sheet-head"><div class="sheet-grab"><i></i></div>
+    <button class="sheet-b" data-close-sheet>&larr; 返回</button>
+    <div class="h">基准与资产负债表</div>
     <button class="sheet-x" data-close-sheet aria-label="关闭">&times;</button></div>
   <div class="sheet-body">
   <div id="accountInputsBlock">
@@ -271,6 +322,7 @@
       <div class="field"><label>那天的净资产(元)</label><input type="number" id="totalEquityInput" placeholder="例如 1020000"></div>
       <div class="field"><label>那天的计价(留空=自动)</label><input type="number" step="0.01" id="anchorPriceInput" placeholder="自动取当日价"></div>
       <div class="field"><label>其中你认作底仓的股数</label><input type="number" step="100" id="baseSharesInput" placeholder="留空=自动算"></div>
+      <div class="field"><label>融资年利率(%)</label><input type="number" step="0.1" id="finRateInput" placeholder="7"></div>
       <input type="hidden" id="baselineValueInput">
       <input type="hidden" id="marginDebtInput">
     </div>
@@ -278,7 +330,10 @@
       <b style="color:var(--red)">净资产不是总资产</b>——是你自己的钱,已经减掉融资欠款。举例:自有 10 万、融资借 5 万、买了 15 万股票,
       <b>净资产填 10 万</b>。填 15 万的话工具会把杠杆算成 1.0 倍、告诉你还能继续买,实际是 2.25 倍。
       不需要单独填"融资欠款":现金是拿「净资产 − 股数×计价」倒推出来的,负数就是欠款,之后每笔成交自己加减,融资利息按
-      <span id="lbl-fin">5%</span> 年化按天扣。<br>
+      <b><span id="lbl-fin">7%</span></b> 年化、按<b>自然日</b>从现金里扣(周末节假日也算)。<br>
+      <b>融资年利率填你券商实际收的那个</b>(默认 7%,券商常见 6.5%~8.6%,可以谈)。它<b>只影响你自己账本的利息</b>——
+      回测和熔断信号用的是另一个固定值(daily_state 里的 <span id="lbl-fin-bt">5%</span>),
+      那条曲线要和 Python 引擎逐日对得上账,不能跟着这里变。<br>
       <b>股数抄券商,但抄的是"基准日那天"的</b>:今天设基准就抄今天持仓页那个数,之后买卖了不要回来改它。
       <b>底仓股数填你认作长期不动的那部分</b>,留空就自动按「当前股数 − 加仓表里的股数」算。<br>
       <b>"那天的计价"一般留空</b>,自动取基准日的收盘价(基准日是今天就取现价)。它被<b>冻结</b>在基准里不再随行情变——
@@ -286,7 +341,7 @@
     </div>
     <div id="levEchoBox" style="display:none; margin-top:8px; padding:9px 12px; border-radius:8px; font-size:13px"></div>
     <div id="baselineWeightBox" style="display:none; margin-top:4px; padding:10px 12px; background:#10141a; border:1px solid var(--border); border-radius:8px; font-size:13px"></div>
-    <div class="row-title" style="margin-top:18px">实时资产负债表(由基准 + 基准日之后每一笔成交结转出来,现金已按 <span id="lbl-fin2">5%</span> 年化扣掉融资利息,随最新价自动更新——不用你手填)</div>
+    <div class="row-title" style="margin-top:18px">实时资产负债表(由基准 + 基准日之后每一笔成交结转出来,现金已按 <span id="lbl-fin2">7%</span> 年化扣掉融资利息,随最新价自动更新——不用你手填)</div>
     <div id="balanceSheetBox"></div>
 
   </div>
@@ -294,7 +349,9 @@
 </div>
 
 <div class="sheet" id="sheetPositions" role="dialog" aria-modal="true" aria-label="持仓与卖出记录">
-  <div class="sheet-head"><div class="h">持仓与卖出记录</div>
+  <div class="sheet-head"><div class="sheet-grab"><i></i></div>
+    <button class="sheet-b" data-close-sheet>&larr; 返回</button>
+    <div class="h">持仓与卖出记录</div>
     <button class="sheet-x" data-close-sheet aria-label="关闭">&times;</button></div>
   <div class="sheet-body">
     <div class="row-title" style="margin-top:18px">持仓中的杠杆仓位(每笔挂"成本价+5%"止盈单,每天开盘都要继续挂,直到成交;每天最多允许3笔同时止盈)</div>
@@ -326,7 +383,9 @@
 </div>
 
 <div class="sheet" id="sheetAdjust" role="dialog" aria-modal="true" aria-label="调整流水">
-  <div class="sheet-head"><div class="h">调整流水</div>
+  <div class="sheet-head"><div class="sheet-grab"><i></i></div>
+    <button class="sheet-b" data-close-sheet>&larr; 返回</button>
+    <div class="h">调整流水</div>
     <button class="sheet-x" data-close-sheet aria-label="关闭">&times;</button></div>
   <div class="sheet-body">
     <div class="row-title" style="margin-top:18px">调整流水(成交清单以外的股数/现金变动)</div>
@@ -348,7 +407,9 @@
 </div>
 
 <div class="sheet" id="sheetRecon" role="dialog" aria-modal="true" aria-label="跟券商核对">
-  <div class="sheet-head"><div class="h">跟券商核对</div>
+  <div class="sheet-head"><div class="sheet-grab"><i></i></div>
+    <button class="sheet-b" data-close-sheet>&larr; 返回</button>
+    <div class="h">跟券商核对</div>
     <button class="sheet-x" data-close-sheet aria-label="关闭">&times;</button></div>
   <div class="sheet-body">
     <div class="row-title" style="margin-top:18px">跟券商核对(不是要你填账,是拿结转结果去对一下)</div>
@@ -364,7 +425,9 @@
 </div>
 
 <div class="sheet" id="sheetParams" role="dialog" aria-modal="true" aria-label="策略参数">
-  <div class="sheet-head"><div class="h">策略参数</div>
+  <div class="sheet-head"><div class="sheet-grab"><i></i></div>
+    <button class="sheet-b" data-close-sheet>&larr; 返回</button>
+    <div class="h">策略参数</div>
     <button class="sheet-x" data-close-sheet aria-label="关闭">&times;</button></div>
   <div class="sheet-body">
 <div class="card" id="thresholdCard" style="display:none">
@@ -391,7 +454,9 @@
 </div>
 
 <div class="sheet" id="sheetData" role="dialog" aria-modal="true" aria-label="同步 · 导出 · 数据源">
-  <div class="sheet-head"><div class="h">同步 · 导出 · 数据源</div>
+  <div class="sheet-head"><div class="sheet-grab"><i></i></div>
+    <button class="sheet-b" data-close-sheet>&larr; 返回</button>
+    <div class="h">同步 · 导出 · 数据源</div>
     <button class="sheet-x" data-close-sheet aria-label="关闭">&times;</button></div>
   <div class="sheet-body">
     <div class="row-title" style="margin-top:18px">云同步(可选,通过 GitHub Gist)</div>
@@ -429,7 +494,9 @@
 </div>
 
 <div class="sheet" id="sheetNotes" role="dialog" aria-modal="true" aria-label="使用说明与局限">
-  <div class="sheet-head"><div class="h">使用说明与局限</div>
+  <div class="sheet-head"><div class="sheet-grab"><i></i></div>
+    <button class="sheet-b" data-close-sheet>&larr; 返回</button>
+    <div class="h">使用说明与局限</div>
     <button class="sheet-x" data-close-sheet aria-label="关闭">&times;</button></div>
   <div class="sheet-body">
 <div class="card caveat">
@@ -1037,6 +1104,13 @@ function renderAccountInputs() {
   document.getElementById("totalEquityInput").value = a ? a.equity : (advState.totalEquity ?? "");
   document.getElementById("anchorPriceInput").value = a?.price ?? "";
   document.getElementById("baseSharesInput").value = advState.baseShares ?? "";
+  const fr = document.getElementById("finRateInput");
+  if (fr) fr.value = advState.finRate != null ? +(advState.finRate * 100).toFixed(3) : "";
+  refreshFinRateLabels();
+}
+function refreshFinRateLabels() {
+  const txt = (ledgerFinRate() * 100).toFixed(2).replace(/\.?0+$/, "") + "%";
+  ["lbl-fin", "lbl-fin2"].forEach(id => { const e = document.getElementById(id); if (e) e.textContent = txt; });
 }
 
 function applyAdvUIFromState() {
@@ -1072,13 +1146,22 @@ function toggleAdvancedCards() {
 // library, no focus-trap framework -- one backdrop, one open sheet at a time, Esc and backdrop close.
 let openSheetId = null;
 function openSheet(id) {
-  closeSheet();
   const el = document.getElementById(id);
   if (!el) return;
+  const wasOpen = openSheetId;
+  if (wasOpen) { document.getElementById(wasOpen)?.classList.remove("open"); }
   el.classList.add("open");
   document.getElementById("sheetBack").classList.add("open");
   document.body.style.overflow = "hidden";
   openSheetId = id;
+  // A sheet occupies one history entry, so the phone's back gesture closes it instead of leaving the
+  // page. Without this, opening a sheet and swiping back navigated away entirely -- on a phone the
+  // system gesture IS the back button, and there was no way to return. Going sheet-to-sheet REPLACES
+  // the entry rather than pushing, or one back press per sheet visited would be needed to get out.
+  try {
+    if (wasOpen) history.replaceState({ sheet: id }, "");
+    else history.pushState({ sheet: id }, "");
+  } catch (e) {}
   // Sheets host live tables that other code only refreshes on data change, so a sheet opened later
   // could show a stale table. Re-render whatever this one contains.
   const R = {
@@ -1092,19 +1175,27 @@ function openSheet(id) {
   const first = el.querySelector("input:not([type=hidden]), button.sheet-x");
   if (first) first.focus({ preventScroll: true });
 }
-function closeSheet() {
-  if (openSheetId) {
-    const el = document.getElementById(openSheetId);
+function closeSheet(fromHistory) {
+  const had = openSheetId;
+  if (had) {
+    const el = document.getElementById(had);
     if (el) el.classList.remove("open");
   }
   document.getElementById("sheetBack")?.classList.remove("open");
   document.body.style.overflow = "";
   openSheetId = null;
+  // Closing via 返回/×/Esc must also unwind the history entry, or the back gesture afterwards would
+  // silently re-run the pop with nothing open and the user would appear to be stuck on the page.
+  if (had && !fromHistory) {
+    try { if (history.state && history.state.sheet) history.back(); } catch (e) {}
+  }
 }
+window.addEventListener("popstate", () => { if (openSheetId) closeSheet(true); });
 
 // ---------------- 账户一览:五格 ----------------
 // Read-only, straight off the ledger. It exists so the morning question ("how levered am I, is there
 // room to buy") is answerable without opening a single form.
+let _tilePrev = {};
 function renderAcctTiles() {
   const box = document.getElementById("acctTiles");
   if (!box) return;
@@ -1132,8 +1223,17 @@ function renderAcctTiles() {
          L.lev == null ? "净资产 ≤0" : (room > 0 ? `距 ${cap} 软顶还有 ${y(room)} 元` : `已到 ${cap} 软顶`), levCls, "sheetBasis"),
     tile("持仓", y(L.shares) + " 股", `@${L.price.toFixed(2)} · 加仓表 ${y(trShares)} 股`, "", "sheetPositions"),
     tile("底仓占比", (w * 100).toFixed(1) + "%", `目标 ${(base*100).toFixed(0)}% ±${(band*100).toFixed(0)}%`, wCls, "sheetBasis"),
-    tile("已计提利息", y(L.interest), `${SP("fin_rate",0.05)*100}% 年化 · 结转 ${L.flows.length} 天`, "", "sheetAdjust"),
+    tile("已计提利息", y(L.interest), `${(ledgerFinRate()*100).toFixed(2).replace(/\.?0+$/,"")}% 年化 · 结转 ${L.flows.length} 天`, "", "sheetAdjust"),
   ].join("");
+
+  // Stagger the entrance, and pulse only the tiles whose number actually moved.
+  [...box.querySelectorAll(".tile")].forEach((el, i) => {
+    el.style.animationDelay = (i * 45) + "ms";
+    const k = el.querySelector(".t-k")?.textContent || String(i);
+    const v = el.querySelector(".t-v")?.textContent || "";
+    if (_tilePrev[k] !== undefined && _tilePrev[k] !== v) el.classList.add("flash");
+    _tilePrev[k] = v;
+  });
 
   const bad = L.err.length + L.warn.length;
   document.querySelectorAll('#acctToolbar [data-sheet="sheetRecon"]').forEach(b => {
@@ -1812,7 +1912,8 @@ async function loadDailyState() {
     if (br.resume_thresh != null) put("lbl-resume", pct(br.resume_thresh));
     if (gt != null) put("lbl-gate", (+gt).toFixed(3));
     const fr = SP("fin_rate", null);
-    if (fr != null) { put("lbl-fin", pct(fr)); put("lbl-fin2", pct(fr)); }
+    if (fr != null) put("lbl-fin-bt", pct(fr));      // the backtest's, fixed
+    if (typeof refreshFinRateLabels === "function") refreshFinRateLabels();
   } catch (e) {
     dailyState = null;
     console.warn("daily_state.json 读取失败:", e.message);
@@ -2783,12 +2884,27 @@ function ledgerFlows(A, st, C) {
 // Interest accrues SEGMENT BY SEGMENT, never on the ending balance, because it applies only to
 // max(0, -cash) -- a nonlinear function of the running balance. On the end balance it charges nothing
 // when a mid-window sell repaid the debt, and overcharges when the debt grew late.
+// YOUR broker's margin rate, for YOUR ledger only -- deliberately not the backtest's.
+// SP("fin_rate") is 0.05 and belongs to the frozen reference strategy: the 180-day breaker signal is
+// computed from an equity path that charges that rate, and the page checks its own reference curve
+// against the Python engine to 1e-6. Letting a user setting reach that calculation would make the two
+// implementations disagree and trip the self-check, which suppresses the breaker status entirely. So
+// the live ledger's rate is a separate number, and the UI says so where it is entered.
+function ledgerFinRate() {
+  const v = advState && advState.finRate;
+  // Number.isFinite, NOT isFinite: the global isFinite COERCES, and isFinite(null) is true because
+  // Number(null) is 0. With the loose check a cleared field stored null, passed the guard, and became
+  // the accrual rate -- so "clear it to get the default" silently charged 0% interest forever instead
+  // of 7%. The distinction matters for exactly the values a form produces: null, "" and undefined.
+  return (typeof v === "number" && Number.isFinite(v) && v >= 0) ? v : 0.07;
+}
 function ledgerRoll(A, st, asOf, opts = {}) {
   const C = opts.costLeg != null ? opts.costLeg : SP("cost_leg", 0.001);
-  const R = opts.finRate != null ? opts.finRate : SP("fin_rate", 0.05);
+  const R = opts.finRate != null ? opts.finRate : ledgerFinRate();
   const out = { ok: true, err: [], warn: [], interest: 0, flows: [], asOf, anchor: A };
 
-  if (!A || !A.date || !isFinite(+A.shares) || !isFinite(+A.cash)) {
+  if (!A || !A.date || A.shares == null || A.cash == null
+      || !Number.isFinite(+A.shares) || !Number.isFinite(+A.cash)) {
     out.ok = false; out.err.push("还没有设基准"); return out;
   }
   if (A.date > asOf) {
@@ -2864,7 +2980,8 @@ function ledgerMark(roll, price) {
 let _ledgerMemo = null;
 function anchorResolved() {
   const a = advState.anchor;
-  if (!a || !a.date || !isFinite(+a.shares) || !isFinite(+a.equity)) return null;
+  if (!a || !a.date || !Number.isFinite(+a.shares) || !Number.isFinite(+a.equity)
+      || a.shares == null || a.equity == null) return null;
   const p = +a.price || priceOnDate(a.date);
   if (!isFinite(p) || p <= 0) return null;
   return { date: a.date, shares: +a.shares, equity: +a.equity, price: p,
@@ -2872,7 +2989,7 @@ function anchorResolved() {
 }
 function LEDGER() {
   const px = priceNow(), A = anchorResolved(), today = todayDateStr();
-  const key = `${advStateRev}|${px}|${today}|${A ? A.date + A.shares + A.equity + A.price : "none"}`;
+  const key = `${advStateRev}|${px}|${today}|${ledgerFinRate()}|${A ? A.date + A.shares + A.equity + A.price : "none"}`;
   if (_ledgerMemo && _ledgerMemo.key === key) return _ledgerMemo.val;
   const val = ledgerMark(ledgerRoll(A, advState, today), px);
   _ledgerMemo = { key, val };
@@ -3364,6 +3481,16 @@ function onAnchorEdited() {
 for (const id of ["anchorDateInput", "totalSharesInput", "totalEquityInput", "anchorPriceInput"]) {
   document.getElementById(id).addEventListener("input", onAnchorEdited);
 }
+document.getElementById("finRateInput").addEventListener("input", (e) => {
+  const v = parseFloat(e.target.value);
+  // Blank means "use the default"; a nonsense value is refused rather than silently clamped, because a
+  // wrong rate quietly eats the cash balance a little every single day.
+  advState.finRate = (isFinite(v) && v >= 0 && v <= 30) ? v / 100 : null;
+  saveAdvState(advState);
+  refreshFinRateLabels();
+  renderExportView(); renderBalanceSheet(); renderBaselineWeight(); renderLevEcho();
+  renderReconcile(); renderOpenPriceDecision();
+});
 document.getElementById("baseSharesInput").addEventListener("input", (e) => {
   advState.baseShares = e.target.value ? parseFloat(e.target.value) : null;
   const px = priceNow();
