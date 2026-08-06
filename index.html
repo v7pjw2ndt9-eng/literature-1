@@ -84,136 +84,131 @@
   .todo-item.done .todo-title { text-decoration: line-through; }
   .todo-title { font-size: 15px; font-weight: 600; }
   .todo-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+  /* ============ 模块化布局 ============
+     WHY: everything used to live in one 80-line card -- the basis form, the tranche table, the balance
+     sheet, reconciliation, adjustments and the Gist token, stacked vertically above the thing you
+     actually open the page for. The morning decision was below the fold behind six forms you touch
+     once a month. So: today's decision is the hero, the account is five numbers you can read at a
+     glance, and every low-frequency form moved behind a button into a sheet. Nothing was deleted and
+     no element id changed -- the render functions still find every node they wrote to before. */
+  body { max-width: 1080px; }
+  h1 { font-size: 27px; letter-spacing: -0.4px; margin-bottom: 2px; }
+
+  .sec { margin: 30px 0 0; }
+  .sec-eyebrow { font-size: 11px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--muted);
+                 font-weight: 600; margin-bottom: 5px; }
+  .sec-title { font-size: 21px; font-weight: 600; letter-spacing: -0.3px; margin-bottom: 3px; }
+  .sec-sub { font-size: 12.5px; color: var(--muted); margin-bottom: 13px; line-height: 1.6; }
+
+  .bento { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .bento > .card { margin-bottom: 0; height: 100%; }
+  .bento-wide { grid-column: 1 / -1; }
+  @media (max-width: 720px) { .bento { grid-template-columns: 1fr; } }
+
+  /* the account at a glance: five numbers, tap to open the full sheet */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 10px; }
+  .tile { background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+          padding: 13px 15px; transition: border-color .15s, transform .15s; }
+  .tile.clickable { cursor: pointer; }
+  .tile.clickable:hover { border-color: #3a4152; transform: translateY(-1px); }
+  .tile .t-k { font-size: 11.5px; color: var(--muted); margin-bottom: 5px; letter-spacing: .3px; }
+  .tile .t-v { font-size: 22px; font-weight: 650; letter-spacing: -0.5px; line-height: 1.15; }
+  .tile .t-x { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+  .tile.warn { border-color: var(--amber); }
+  .tile.bad  { border-color: var(--red); }
+
+  /* toolbar of sheet triggers */
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 0; }
+  .tb-btn { background: #171b21; border: 1px solid var(--border); color: var(--text);
+            border-radius: 999px; padding: 7px 15px; font-size: 13px; cursor: pointer;
+            font-family: inherit; transition: border-color .15s, background .15s; }
+  .tb-btn:hover { border-color: #3a4152; background: #1c212a; }
+  .tb-btn .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+                 background: var(--amber); margin-left: 6px; vertical-align: 1px; }
+
+  /* sheets: centred dialog on desktop, bottom sheet on phones */
+  .sheet-back { position: fixed; inset: 0; background: rgba(4,7,11,.72); backdrop-filter: blur(3px);
+                z-index: 90; display: none; }
+  .sheet-back.open { display: block; }
+  .sheet { position: fixed; z-index: 91; display: none; background: var(--bg);
+           border: 1px solid var(--border); border-radius: 18px; overflow: hidden;
+           left: 50%; top: 50%; transform: translate(-50%, -50%);
+           width: min(940px, calc(100vw - 40px)); max-height: calc(100vh - 60px);
+           box-shadow: 0 24px 70px rgba(0,0,0,.6); }
+  .sheet.open { display: flex; flex-direction: column; }
+  .sheet-head { display: flex; align-items: center; gap: 12px; padding: 15px 20px;
+                border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .sheet-head .h { font-size: 16px; font-weight: 600; flex: 1; }
+  .sheet-x { background: none; border: 1px solid var(--border); color: var(--muted); cursor: pointer;
+             border-radius: 8px; width: 30px; height: 30px; font-size: 17px; line-height: 1;
+             font-family: inherit; flex-shrink: 0; }
+  .sheet-x:hover { color: var(--text); border-color: #3a4152; }
+  .sheet-body { padding: 18px 20px 22px; overflow-y: auto; }
+  .sheet-body > .card { margin-bottom: 14px; }
+  .sheet-body .row-title:first-child { margin-top: 0 !important; }
+  @media (max-width: 720px) {
+    .sheet { left: 0; top: auto; bottom: 0; transform: none; width: 100vw;
+             border-radius: 16px 16px 0 0; max-height: 90vh; }
+  }
 </style>
 </head>
 <body>
 
 <h1>隔夜信号 / 做T判断</h1>
-<div class="sub">模型: 逻辑回归 · 目标: 预测"今日盘中低点是否会跌破开盘价-1%" · 每次打开页面用截至昨日的全部历史数据重新训练(walk-forward)</div>
-<div class="sub">使用方式分两步: <b>①9:00左右看这里</b>决定要不要在9:15-9:25集合竞价挂卖单;<b>②9:25开盘价出来后再刷新一次</b>,看下面卡片给出的具体挂单价格。</div>
+<div class="sub">600989 宝丰能源 · 0.9底仓 + 每日10%杠杆操作 · 模型每次打开用截至昨日的全部历史重新训练(walk-forward)</div>
 
-<div class="card">
-  <label class="toggle-row">
-    <input type="checkbox" id="advancedModeToggle">
-    <span>
-      <span class="toggle-label">高级模式:0.9底仓 + 每日10%杠杆操作(软顶1.5倍 + 180日<span id="lbl-stop1">…</span>熔断仅停双边挂单 + 每日最多3笔止盈)</span><br>
-      <span class="toggle-sub">开启后你记的每一笔成交就是这个页面的账本:股数、现金、净资产、杠杆全部由"基准 + 成交记录"算出来,工具据此判断能不能新开仓、提醒哪些老仓位今天要继续挂止盈单。漏记一笔不是表格少一行,是后面所有数字一起偏</span>
-    </span>
-  </label>
-  <div id="accountInputsBlock" style="display:none">
-    <div class="row-title" style="margin-top:18px">账户设置 · 基准(填一次就好,下面所有金额都从它往后结转:资产负债表、底仓占比、杠杆软顶、收益曲线)</div>
-    <div class="todo-sub" style="margin-bottom:10px">这是<b>一次性的基准快照</b>,不是每天要跟着改的实时值:填某一天你在券商那儿看到的股数和净资产,填完就别再动它。之后每笔成交在"今日操作清单"里勾一下,股数和现金自己往后滚。已经结转过的成交你再回来手改基准,等于把同一笔算两遍。</div>
-    <div class="inline-fields">
-      <div class="field"><label>基准日</label><input type="date" id="anchorDateInput"></div>
-      <div class="field"><label>那天的总股数</label><input type="number" step="100" id="totalSharesInput" placeholder="例如 48200"></div>
-      <div class="field"><label>那天的净资产(元)</label><input type="number" id="totalEquityInput" placeholder="例如 1020000"></div>
-      <div class="field"><label>那天的计价(留空=自动)</label><input type="number" step="0.01" id="anchorPriceInput" placeholder="自动取当日价"></div>
-      <div class="field"><label>其中你认作底仓的股数</label><input type="number" step="100" id="baseSharesInput" placeholder="留空=自动算"></div>
-      <input type="hidden" id="baselineValueInput">
-      <input type="hidden" id="marginDebtInput">
-    </div>
-    <div class="todo-sub" style="margin-top:8px; line-height:1.7">
-      <b style="color:var(--red)">净资产不是总资产</b>——是你自己的钱,已经减掉融资欠款。举例:自有 10 万、融资借 5 万、买了 15 万股票,
-      <b>净资产填 10 万</b>。填 15 万的话工具会把杠杆算成 1.0 倍、告诉你还能继续买,实际是 2.25 倍。
-      不需要单独填"融资欠款":现金是拿「净资产 − 股数×计价」倒推出来的,负数就是欠款,之后每笔成交自己加减,融资利息按
-      <span id="lbl-fin">5%</span> 年化按天扣。<br>
-      <b>股数抄券商,但抄的是"基准日那天"的</b>:今天设基准就抄今天持仓页那个数,之后买卖了不要回来改它。
-      <b>底仓股数填你认作长期不动的那部分</b>,留空就自动按「当前股数 − 加仓表里的股数」算。<br>
-      <b>"那天的计价"一般留空</b>,自动取基准日的收盘价(基准日是今天就取现价)。它被<b>冻结</b>在基准里不再随行情变——
-      现金不会因为股价动而变,只有成交才会。只在你想让倒推出来的现金对上券商的可用资金时才手填。
-    </div>
-    <div id="levEchoBox" style="display:none; margin-top:8px; padding:9px 12px; border-radius:8px; font-size:13px"></div>
-    <div id="baselineWeightBox" style="display:none; margin-top:4px; padding:10px 12px; background:#10141a; border:1px solid var(--border); border-radius:8px; font-size:13px"></div>
-    <div class="row-title" style="margin-top:18px">持仓中的杠杆仓位(每笔挂"成本价+5%"止盈单,每天开盘都要继续挂,直到成交;每天最多允许3笔同时止盈)</div>
-    <table id="tranchesTable"><thead><tr><th>买入日期</th><th>股数</th><th>成本价</th><th>止盈目标价</th><th></th></tr></thead><tbody></tbody></table>
-    <div class="inline-fields" style="margin-top:12px; grid-template-columns: 1fr 1fr 1fr auto;">
-      <div class="field"><label>买入日期</label><input type="date" id="newTrancheDate"></div>
-      <div class="field"><label>股数</label><input type="number" id="newTrancheShares" placeholder="500"></div>
-      <div class="field"><label>成本价</label><input type="number" step="0.01" id="newTrancheCost" placeholder="23.50"></div>
-      <div class="field" style="display:flex; align-items:flex-end;"><button class="add-btn" id="addTrancheBtn" style="margin-top:0; width:100%">+ 添加</button></div>
-    </div>
-
-    <div class="row-title" style="margin-top:18px">实时资产负债表(由基准 + 基准日之后每一笔成交结转出来,现金已按 <span id="lbl-fin2">5%</span> 年化扣掉融资利息,随最新价自动更新——不用你手填)</div>
-    <div id="balanceSheetBox"></div>
-
-    <div class="row-title" style="margin-top:18px">跟券商核对(不是要你填账,是拿结转结果去对一下)</div>
-    <div class="todo-sub" style="margin-bottom:10px">上面那些数字是从基准一笔笔加减出来的,所以它跟券商对不上只有两种可能:<b>基准填错了</b>,或者<b>有成交没记进来</b>(底仓再平衡、入金出金、分红、部分成交都属于这类)。隔一段时间填一次这里就能定位。</div>
-    <div class="inline-fields" style="grid-template-columns: 1fr 1fr auto;">
-      <div class="field"><label>券商现在显示的股数</label><input type="number" step="100" id="reconSharesInput" placeholder="抄持仓页"></div>
-      <div class="field"><label>券商现在显示的净资产</label><input type="number" id="reconEquityInput" placeholder="可留空"></div>
-      <div class="field" style="display:flex; align-items:flex-end;"><button class="add-btn" id="reconCheckBtn" style="margin-top:0; width:100%">核对</button></div>
-    </div>
-    <div id="reconResultBox" style="margin-top:10px"></div>
-
-    <div class="row-title" style="margin-top:18px">调整流水(成交清单以外的股数/现金变动)</div>
-    <div class="todo-sub" style="margin-bottom:10px">"今日操作清单"只记策略自己的买卖。<b>底仓再平衡、入金出金、分红、送股、部分成交的差额</b>这些它看不到,记在这里流水账才是完整的——否则它们会变成一笔说不清的对账差额。<b>股数</b>和<b>现金</b>填变化量:买入是股数正、现金负;分红只填现金正;入金只填现金正。</div>
-    <table id="adjTable"><thead><tr><th>日期</th><th>类型</th><th>股数变化</th><th>现金变化</th><th>备注</th><th></th></tr></thead><tbody></tbody></table>
-    <div id="adjEmpty" class="todo-sub" style="margin-top:6px">暂无</div>
-    <div class="inline-fields" style="margin-top:12px; grid-template-columns: 1fr 1.1fr 1fr 1fr auto;">
-      <div class="field"><label>日期</label><input type="date" id="newAdjDate"></div>
-      <div class="field"><label>类型</label><select id="newAdjKind">
-        <option>底仓再平衡</option><option>入金</option><option>出金</option><option>分红</option>
-        <option>送股/转增</option><option>成交价差额</option><option>对账差额</option><option>其他</option>
-      </select></div>
-      <div class="field"><label>股数变化(±)</label><input type="number" step="100" id="newAdjShares" placeholder="0"></div>
-      <div class="field"><label>现金变化(±)</label><input type="number" id="newAdjCash" placeholder="0"></div>
-      <div class="field" style="display:flex; align-items:flex-end;"><button class="add-btn" id="addAdjBtn" style="margin-top:0; width:100%">+ 添加</button></div>
-    </div>
-
-    <div class="row-title" style="margin-top:18px">云同步(可选,通过 GitHub Gist)</div>
-    <div class="todo-sub" style="margin-bottom:10px">去 GitHub 头像→Settings→Developer settings→Personal access tokens→Fine-grained tokens 新建一个只勾"Gist"读写权限的 Token,填在下面就能在多台设备间同步这个页面的净值/持仓/卖出记录。Token 只存在这台设备本地,不会出现在CSV导出或"导出记录"文字卡片里;但 Gist 本身是"secret"(不公开列出,不是强加密),知道链接的人仍能看到内容,别用来存比这更敏感的东西。</div>
-    <div class="inline-fields" style="grid-template-columns: 2fr 1fr;">
-      <div class="field"><label>GitHub Token</label><input type="password" id="syncTokenInput" placeholder="github_pat_..."></div>
-      <div class="field"><label>Gist ID(留空=首次推送自动创建)</label><input type="text" id="syncGistIdInput" placeholder="自动"></div>
-    </div>
-    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:10px">
-      <button class="add-btn" id="syncPushBtn">推送到云端</button>
-      <button class="add-btn" id="syncPullBtn">从云端拉取(会覆盖本机记录)</button>
-      <label class="toggle-row" style="gap:6px"><input type="checkbox" id="syncAutoPushToggle" style="width:16px;height:16px"><span style="font-size:12px">自动推送(修改后3秒自动同步)</span></label>
-    </div>
-    <div class="status" id="syncStatusMsg" style="margin-top:8px"></div>
-  </div>
-</div>
-
-<div class="card" id="breakerStatusCard" style="display:none">
-  <div class="row-title">策略状态(自动计算,基于"假设从未熔断"的180自然日滚动超额收益)</div>
-  <div id="breakerStatusBody">计算中…</div>
-</div>
-
+<!-- ============ 今天要做什么 ============
+     The hero. This is the only part of the page with a deadline on it: the gate verdict is actionable
+     at 09:00, the bracket prices exist from 09:25, and the checklist has to be ticked before the
+     orders are placed. It used to sit below six forms. -->
+<div class="sec">
+  <div class="sec-eyebrow">今天</div>
+  <div class="sec-title">当日策略</div>
+  <div class="sec-sub"><b>9:00 左右</b>看①的结论,决定要不要在集合竞价挂卖单 ·
+    <b>9:25 开盘价出来后</b>点下面"重新拉取",②才会给出具体挂单价格</div>
+  <div class="bento">
+    <div class="bento-wide">
 <div class="card decision" id="decisionCard">
   <div class="label"><span class="spinner"></span>正在拉取行情并训练模型…</div>
 </div>
-
+    </div>
+    <div class="bento-wide">
 <div class="card decision" id="openDecisionCard" style="display:none">
 </div>
-
+    </div>
 <div class="card" id="todoCard" style="display:none">
   <div class="row-title">今日操作清单 — 挂完单/确认成交后勾选,后面就不用再管了</div>
   <div id="todoList"></div>
 </div>
-
-<div class="card" id="thresholdCard" style="display:none">
-  <div class="row-title">①判定阈值(默认<span id="lbl-gate">…</span>,由历史验证集选出) — 决定是否集合竞价卖出</div>
-  <div id="threshold-row">
-    <input type="range" id="thresholdSlider" min="0.3" max="0.95" step="0.001" value="0.779">
-    <span id="threshold-val">0.779</span>
+<div class="card" id="breakerStatusCard" style="display:none">
+  <div class="row-title">策略状态(自动计算,基于"假设从未熔断"的180自然日滚动超额收益)</div>
+  <div id="breakerStatusBody">计算中…</div>
+</div>
   </div>
 </div>
 
-<div class="card" id="bracketCard" style="display:none">
-  <div class="row-title">②不满足①的条件时,开盘价±X% 双边挂单参数</div>
-  <div id="bracket-upper-row" style="display:flex; align-items:center; gap:12px; margin-bottom:10px;">
-    <span style="min-width:90px; font-size:13px; color:var(--muted)">卖出 开盘+X%</span>
-    <input type="range" id="bracketUpperSlider" min="0.01" max="0.08" step="0.005" value="0.03" style="flex:1">
-    <span id="bracket-upper-val" style="font-weight:600; min-width:42px; text-align:right">3.0%</span>
-  </div>
-  <div id="bracket-lower-row" style="display:flex; align-items:center; gap:12px;">
-    <span style="min-width:90px; font-size:13px; color:var(--muted)">买入 开盘-B%</span>
-    <input type="range" id="bracketLowerSlider" min="0.003" max="0.02" step="0.001" value="0.009" style="flex:1">
-    <span id="bracket-lower-val" style="font-weight:600; min-width:42px; text-align:right">0.9%</span>
+<!-- ============ 账户一览 ============
+     Five numbers, derived from the ledger, read-only. Every form that produces them moved into a
+     sheet: you look at this every morning and touch the forms roughly never. -->
+<div class="sec" id="acctSection" style="display:none">
+  <div class="sec-eyebrow">账户</div>
+  <div class="sec-title">当前状况</div>
+  <div class="sec-sub">全部由「基准 + 每一笔成交」结转出来,随最新价自动更新 —— 点任意一格看明细</div>
+  <div class="tiles" id="acctTiles"></div>
+  <div class="toolbar" id="acctToolbar">
+    <button class="tb-btn" data-sheet="sheetBasis">基准与资产负债表</button>
+    <button class="tb-btn" data-sheet="sheetPositions">持仓与卖出记录</button>
+    <button class="tb-btn" data-sheet="sheetAdjust">调整流水</button>
+    <button class="tb-btn" data-sheet="sheetRecon">跟券商核对</button>
+    <button class="tb-btn" data-sheet="sheetParams">策略参数</button>
+    <button class="tb-btn" data-sheet="sheetData">同步 · 导出 · 数据源</button>
+    <button class="tb-btn" data-sheet="sheetNotes">使用说明与局限</button>
   </div>
 </div>
 
+<!-- ============ 曲线 ============ -->
+<div class="sec">
 <div class="card" id="dashboardCard" style="display:none">
   <div class="row-title">股价 / 180日超额收益 / 杠杆率 / 实际收益对比 — 共享同一条时间轴,可交互(鼠标悬停看数值,按钮切换显示区间)</div>
   <div id="dashboardRangeRow" style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; align-items:center">
@@ -238,13 +233,180 @@
   <div id="dashboardContainer"></div>
   <div id="dashboardEmpty" class="todo-sub" style="display:none">暂无足够的交易记录来重建"实际收益对比"这条线(需要至少一笔已记录的持仓),其余曲线不受影响</div>
 </div>
+</div>
+
+<div class="sec">
+<div class="card">
+  <button id="refreshBtn">重新拉取 & 刷新</button>
+  <span class="status" id="statusMsg" style="margin-left:12px;"></span>
+</div>
+</div>
+
+<div class="card" style="padding:14px 16px">
+  <label class="toggle-row">
+    <input type="checkbox" id="advancedModeToggle">
+    <span>
+      <span class="toggle-label">高级模式:0.9底仓 + 每日10%杠杆操作(软顶1.5倍 + 180日<span id="lbl-stop1">…</span>熔断仅停双边挂单 + 每日最多3笔止盈)</span><br>
+      <span class="toggle-sub">开启后你记的每一笔成交就是这个页面的账本:股数、现金、净资产、杠杆全部由"基准 + 成交记录"算出来,工具据此判断能不能新开仓、提醒哪些老仓位今天要继续挂止盈单。漏记一笔不是表格少一行,是后面所有数字一起偏</span>
+    </span>
+  </label>
+</div>
+
+<!-- ============ 抽屉:低频操作 ============
+     Each sheet is a MOVE, not a copy. The nodes below are the same nodes the old single card held, in
+     the same order, with the same ids -- renderBalanceSheet/renderTranchesTable/renderAdjTable/
+     renderReconcile/renderSyncUI all still resolve. -->
+<div class="sheet-back" id="sheetBack"></div>
+
+<div class="sheet" id="sheetBasis" role="dialog" aria-modal="true" aria-label="基准与资产负债表">
+  <div class="sheet-head"><div class="h">基准与资产负债表</div>
+    <button class="sheet-x" data-close-sheet aria-label="关闭">&times;</button></div>
+  <div class="sheet-body">
+  <div id="accountInputsBlock">
+    <div class="row-title" style="margin-top:18px">账户设置 · 基准(填一次就好,下面所有金额都从它往后结转:资产负债表、底仓占比、杠杆软顶、收益曲线)</div>
+    <div class="todo-sub" style="margin-bottom:10px">这是<b>一次性的基准快照</b>,不是每天要跟着改的实时值:填某一天你在券商那儿看到的股数和净资产,填完就别再动它。之后每笔成交在"今日操作清单"里勾一下,股数和现金自己往后滚。已经结转过的成交你再回来手改基准,等于把同一笔算两遍。</div>
+    <div class="inline-fields">
+      <div class="field"><label>基准日</label><input type="date" id="anchorDateInput"></div>
+      <div class="field"><label>那天的总股数</label><input type="number" step="100" id="totalSharesInput" placeholder="例如 48200"></div>
+      <div class="field"><label>那天的净资产(元)</label><input type="number" id="totalEquityInput" placeholder="例如 1020000"></div>
+      <div class="field"><label>那天的计价(留空=自动)</label><input type="number" step="0.01" id="anchorPriceInput" placeholder="自动取当日价"></div>
+      <div class="field"><label>其中你认作底仓的股数</label><input type="number" step="100" id="baseSharesInput" placeholder="留空=自动算"></div>
+      <input type="hidden" id="baselineValueInput">
+      <input type="hidden" id="marginDebtInput">
+    </div>
+    <div class="todo-sub" style="margin-top:8px; line-height:1.7">
+      <b style="color:var(--red)">净资产不是总资产</b>——是你自己的钱,已经减掉融资欠款。举例:自有 10 万、融资借 5 万、买了 15 万股票,
+      <b>净资产填 10 万</b>。填 15 万的话工具会把杠杆算成 1.0 倍、告诉你还能继续买,实际是 2.25 倍。
+      不需要单独填"融资欠款":现金是拿「净资产 − 股数×计价」倒推出来的,负数就是欠款,之后每笔成交自己加减,融资利息按
+      <span id="lbl-fin">5%</span> 年化按天扣。<br>
+      <b>股数抄券商,但抄的是"基准日那天"的</b>:今天设基准就抄今天持仓页那个数,之后买卖了不要回来改它。
+      <b>底仓股数填你认作长期不动的那部分</b>,留空就自动按「当前股数 − 加仓表里的股数」算。<br>
+      <b>"那天的计价"一般留空</b>,自动取基准日的收盘价(基准日是今天就取现价)。它被<b>冻结</b>在基准里不再随行情变——
+      现金不会因为股价动而变,只有成交才会。只在你想让倒推出来的现金对上券商的可用资金时才手填。
+    </div>
+    <div id="levEchoBox" style="display:none; margin-top:8px; padding:9px 12px; border-radius:8px; font-size:13px"></div>
+    <div id="baselineWeightBox" style="display:none; margin-top:4px; padding:10px 12px; background:#10141a; border:1px solid var(--border); border-radius:8px; font-size:13px"></div>
+    <div class="row-title" style="margin-top:18px">实时资产负债表(由基准 + 基准日之后每一笔成交结转出来,现金已按 <span id="lbl-fin2">5%</span> 年化扣掉融资利息,随最新价自动更新——不用你手填)</div>
+    <div id="balanceSheetBox"></div>
+
+  </div>
+  </div>
+</div>
+
+<div class="sheet" id="sheetPositions" role="dialog" aria-modal="true" aria-label="持仓与卖出记录">
+  <div class="sheet-head"><div class="h">持仓与卖出记录</div>
+    <button class="sheet-x" data-close-sheet aria-label="关闭">&times;</button></div>
+  <div class="sheet-body">
+    <div class="row-title" style="margin-top:18px">持仓中的杠杆仓位(每笔挂"成本价+5%"止盈单,每天开盘都要继续挂,直到成交;每天最多允许3笔同时止盈)</div>
+    <table id="tranchesTable"><thead><tr><th>买入日期</th><th>股数</th><th>成本价</th><th>止盈目标价</th><th></th></tr></thead><tbody></tbody></table>
+    <div class="inline-fields" style="margin-top:12px; grid-template-columns: 1fr 1fr 1fr auto;">
+      <div class="field"><label>买入日期</label><input type="date" id="newTrancheDate"></div>
+      <div class="field"><label>股数</label><input type="number" id="newTrancheShares" placeholder="500"></div>
+      <div class="field"><label>成本价</label><input type="number" step="0.01" id="newTrancheCost" placeholder="23.50"></div>
+      <div class="field" style="display:flex; align-items:flex-end;"><button class="add-btn" id="addTrancheBtn" style="margin-top:0; width:100%">+ 添加</button></div>
+    </div>
 
 <div class="card" id="sellLogCard" style="display:none">
   <div class="row-title">卖出记录(历史成交流水;实际成交价与挂单建议价不同时可点"编辑"手动订正)</div>
   <table id="sellLogTable"><thead><tr><th>日期</th><th>类型</th><th>股数</th><th>买价</th><th>卖价</th><th>盈亏%</th><th></th></tr></thead><tbody></tbody></table>
   <div id="sellLogEmpty" class="todo-sub" style="margin-top:6px">暂无记录</div>
+  <div class="todo-sub" style="margin-top:12px">手工补录一笔卖出(平时用"今日操作清单"勾选就会自动记,这里是给对账/重建历史用的)。
+    <b>买入日期</b>填这批股票原来是哪天买的:留空表示当天一进一出;填了就表示是平掉一笔过夜仓位。
+    卖出后记得去上面的加仓表把对应那笔删掉,否则同一批股票会既算在持仓里、又算成已卖出。</div>
+  <div class="inline-fields" style="margin-top:8px; grid-template-columns: 1fr 1fr 1fr 1fr 1fr auto;">
+    <div class="field"><label>卖出日期</label><input type="date" id="newSellDate"></div>
+    <div class="field"><label>股数</label><input type="number" step="100" id="newSellShares" placeholder="5000"></div>
+    <div class="field"><label>买入价</label><input type="number" step="0.01" id="newSellBuyPrice" placeholder="22.40"></div>
+    <div class="field"><label>卖出价</label><input type="number" step="0.01" id="newSellPrice" placeholder="23.28"></div>
+    <div class="field"><label>买入日期(可留空)</label><input type="date" id="newSellBuyDate"></div>
+    <div class="field" style="display:flex; align-items:flex-end;"><button class="add-btn" id="addSellBtn" style="margin-top:0; width:100%">+ 添加</button></div>
+  </div>
+</div>
+  </div>
 </div>
 
+<div class="sheet" id="sheetAdjust" role="dialog" aria-modal="true" aria-label="调整流水">
+  <div class="sheet-head"><div class="h">调整流水</div>
+    <button class="sheet-x" data-close-sheet aria-label="关闭">&times;</button></div>
+  <div class="sheet-body">
+    <div class="row-title" style="margin-top:18px">调整流水(成交清单以外的股数/现金变动)</div>
+    <div class="todo-sub" style="margin-bottom:10px">"今日操作清单"只记策略自己的买卖。<b>底仓再平衡、入金出金、分红、送股、部分成交的差额</b>这些它看不到,记在这里流水账才是完整的——否则它们会变成一笔说不清的对账差额。<b>股数</b>和<b>现金</b>填变化量:买入是股数正、现金负;分红只填现金正;入金只填现金正。</div>
+    <table id="adjTable"><thead><tr><th>日期</th><th>类型</th><th>股数变化</th><th>现金变化</th><th>备注</th><th></th></tr></thead><tbody></tbody></table>
+    <div id="adjEmpty" class="todo-sub" style="margin-top:6px">暂无</div>
+    <div class="inline-fields" style="margin-top:12px; grid-template-columns: 1fr 1.1fr 1fr 1fr auto;">
+      <div class="field"><label>日期</label><input type="date" id="newAdjDate"></div>
+      <div class="field"><label>类型</label><select id="newAdjKind">
+        <option>底仓再平衡</option><option>入金</option><option>出金</option><option>分红</option>
+        <option>送股/转增</option><option>成交价差额</option><option>对账差额</option><option>其他</option>
+      </select></div>
+      <div class="field"><label>股数变化(±)</label><input type="number" step="100" id="newAdjShares" placeholder="0"></div>
+      <div class="field"><label>现金变化(±)</label><input type="number" id="newAdjCash" placeholder="0"></div>
+      <div class="field" style="display:flex; align-items:flex-end;"><button class="add-btn" id="addAdjBtn" style="margin-top:0; width:100%">+ 添加</button></div>
+    </div>
+
+  </div>
+</div>
+
+<div class="sheet" id="sheetRecon" role="dialog" aria-modal="true" aria-label="跟券商核对">
+  <div class="sheet-head"><div class="h">跟券商核对</div>
+    <button class="sheet-x" data-close-sheet aria-label="关闭">&times;</button></div>
+  <div class="sheet-body">
+    <div class="row-title" style="margin-top:18px">跟券商核对(不是要你填账,是拿结转结果去对一下)</div>
+    <div class="todo-sub" style="margin-bottom:10px">上面那些数字是从基准一笔笔加减出来的,所以它跟券商对不上只有两种可能:<b>基准填错了</b>,或者<b>有成交没记进来</b>(底仓再平衡、入金出金、分红、部分成交都属于这类)。隔一段时间填一次这里就能定位。</div>
+    <div class="inline-fields" style="grid-template-columns: 1fr 1fr auto;">
+      <div class="field"><label>券商现在显示的股数</label><input type="number" step="100" id="reconSharesInput" placeholder="抄持仓页"></div>
+      <div class="field"><label>券商现在显示的净资产</label><input type="number" id="reconEquityInput" placeholder="可留空"></div>
+      <div class="field" style="display:flex; align-items:flex-end;"><button class="add-btn" id="reconCheckBtn" style="margin-top:0; width:100%">核对</button></div>
+    </div>
+    <div id="reconResultBox" style="margin-top:10px"></div>
+
+  </div>
+</div>
+
+<div class="sheet" id="sheetParams" role="dialog" aria-modal="true" aria-label="策略参数">
+  <div class="sheet-head"><div class="h">策略参数</div>
+    <button class="sheet-x" data-close-sheet aria-label="关闭">&times;</button></div>
+  <div class="sheet-body">
+<div class="card" id="thresholdCard" style="display:none">
+  <div class="row-title">①判定阈值(默认<span id="lbl-gate">…</span>,由历史验证集选出) — 决定是否集合竞价卖出</div>
+  <div id="threshold-row">
+    <input type="range" id="thresholdSlider" min="0.3" max="0.95" step="0.001" value="0.779">
+    <span id="threshold-val">0.779</span>
+  </div>
+</div>
+<div class="card" id="bracketCard" style="display:none">
+  <div class="row-title">②不满足①的条件时,开盘价±X% 双边挂单参数</div>
+  <div id="bracket-upper-row" style="display:flex; align-items:center; gap:12px; margin-bottom:10px;">
+    <span style="min-width:90px; font-size:13px; color:var(--muted)">卖出 开盘+X%</span>
+    <input type="range" id="bracketUpperSlider" min="0.01" max="0.08" step="0.005" value="0.03" style="flex:1">
+    <span id="bracket-upper-val" style="font-weight:600; min-width:42px; text-align:right">3.0%</span>
+  </div>
+  <div id="bracket-lower-row" style="display:flex; align-items:center; gap:12px;">
+    <span style="min-width:90px; font-size:13px; color:var(--muted)">买入 开盘-B%</span>
+    <input type="range" id="bracketLowerSlider" min="0.003" max="0.02" step="0.001" value="0.009" style="flex:1">
+    <span id="bracket-lower-val" style="font-weight:600; min-width:42px; text-align:right">0.9%</span>
+  </div>
+</div>
+  </div>
+</div>
+
+<div class="sheet" id="sheetData" role="dialog" aria-modal="true" aria-label="同步 · 导出 · 数据源">
+  <div class="sheet-head"><div class="h">同步 · 导出 · 数据源</div>
+    <button class="sheet-x" data-close-sheet aria-label="关闭">&times;</button></div>
+  <div class="sheet-body">
+    <div class="row-title" style="margin-top:18px">云同步(可选,通过 GitHub Gist)</div>
+    <div class="todo-sub" style="margin-bottom:10px">去 GitHub 头像→Settings→Developer settings→Personal access tokens→Fine-grained tokens 新建一个只勾"Gist"读写权限的 Token,填在下面就能在多台设备间同步这个页面的净值/持仓/卖出记录。Token 只存在这台设备本地,不会出现在CSV导出或"导出记录"文字卡片里;但 Gist 本身是"secret"(不公开列出,不是强加密),知道链接的人仍能看到内容,别用来存比这更敏感的东西。</div>
+    <div class="inline-fields" style="grid-template-columns: 2fr 1fr;">
+      <div class="field"><label>GitHub Token</label><input type="password" id="syncTokenInput" placeholder="github_pat_..."></div>
+      <div class="field"><label>Gist ID(留空=首次推送自动创建)</label><input type="text" id="syncGistIdInput" placeholder="自动"></div>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:10px">
+      <button class="add-btn" id="syncPushBtn">推送到云端</button>
+      <button class="add-btn" id="syncPullBtn">从云端拉取(会覆盖本机记录)</button>
+      <label class="toggle-row" style="gap:6px"><input type="checkbox" id="syncAutoPushToggle" style="width:16px;height:16px"><span style="font-size:12px">自动推送(修改后3秒自动同步)</span></label>
+    </div>
+    <div class="status" id="syncStatusMsg" style="margin-top:8px"></div>
+  </div>
 <div class="card" id="exportCard" style="display:none">
   <div class="row-title">导出记录(截图这张卡片留个档;换设备走下面的CSV,手抄容易漏掉基准那几行,基准一错整张资产负债表都错)</div>
   <pre id="exportView" style="white-space:pre-wrap; font-family:ui-monospace,monospace; font-size:13px; background:#10141a; border:1px solid var(--border); border-radius:8px; padding:12px; margin:0;"></pre>
@@ -255,22 +417,21 @@
   </div>
   <div class="todo-sub" style="margin-top:8px">CSV包含基准(基准日/股数/净资产/计价)、持仓中的仓位、卖出记录和调整流水——<b>基准那行必须一起带走</b>,少了它新设备算出来的净资产和杠杆是错的、不是空的。换设备时先导出、再到新设备导入,比截图手动录入更可靠</div>
 </div>
-
 <div class="card" id="featCard" style="display:none">
   <div class="row-title">当前特征值</div>
   <div class="grid" id="featGrid"></div>
 </div>
-
 <div class="card" id="dataCard" style="display:none">
   <div class="row-title">数据来源与时间戳</div>
   <table id="dataTable"></table>
 </div>
-
-<div class="card">
-  <button id="refreshBtn">重新拉取 & 刷新</button>
-  <span class="status" id="statusMsg" style="margin-left:12px;"></span>
+  </div>
 </div>
 
+<div class="sheet" id="sheetNotes" role="dialog" aria-modal="true" aria-label="使用说明与局限">
+  <div class="sheet-head"><div class="h">使用说明与局限</div>
+    <button class="sheet-x" data-close-sheet aria-label="关闭">&times;</button></div>
+  <div class="sheet-body">
 <div class="card caveat">
   <b>操作流程:</b><br>
   · 9:00左右打开本页,看卡片①的结论,决定要不要在9:15-9:25集合竞价挂卖单。<br>
@@ -298,8 +459,8 @@
   17. 历史行情数据会缓存在本地(localStorage),同一天内重复打开页面基本不会重新下载;但期货数据接口不支持按日期增量拉取,缓存过期后仍需完整重新下载一次,不算严重但也不是完全的"增量"。<br>
   18. "每天最多3笔"这个上限统计三类减仓:老仓位止盈、上方卖单平掉加仓、双边当日了结,不含底仓再平衡。极端行情下多笔仓位同时达标也只处理前3笔(最老优先),其余留到以后,这段时间杠杆会比"立刻全清"更高,是有意的权衡而非bug。<br>
   22. <b>熔断只挡"新买入",从不挡卖出。</b>停摆期间:上方卖单(平掉一笔加仓)照挂、老仓位的成本×1.05止盈照挂,只有双边的买单不挂。这样才保证你在"策略过热"的判定下随时还能减仓 —— 回测里"停摆期连卖出也停"看着还高12pp,但那是把自己锁在高杠杆上,属于风控原则问题,不按单条历史路径的收益来定。<br>
-  19. "实际杠杆率""累计收益对比"这两个panel只用你实际记录的持仓/卖出算,180日超额收益那个panel则始终是"假设从未熔断"的参考信号(专门用来判断要不要熔断,不代表实际账户表现)——两者故意分开,别混着看。"实际杠杆率"的分母现在是从基准结转出来的净值(基准现金 + 每笔成交的现金流 − 计提的融资利息,再加上当日股票市值),不再是拿"今天的净值"去反推整段历史。代价换到了另一头:<b>基准日之前一律算不出来</b>,曲线从基准日起画,更早的部分是没有,不是被画平了。持仓表格、卖出记录表格里的"编辑"按钮可以直接改历史记录(比如实际成交价跟建议价不同时用来订正),改完立刻重新计算所有曲线,请自行核对改得对不对。<br>
-  20. <b>基准是"某一天的快照",不是"现在的值"</b>——填基准日那天券商里的股数和净资产,之后就别再手动改它了:每笔成交勾进清单后,股数和现金会自己往后结转,你手改基准等于把已经算过的成交再算一遍。也不需要跟同花顺之类其他软件里的历史记录对齐——这套0.9底仓+10%杠杆分笔的打法是从你开始用这个工具那天起才生效的新策略,不建议把之前用别的方式做的历史交易硬套进来;基准日就填今天、股数和净资产抄今天的,持仓和卖出记录留空,后面跟着"今日操作清单"一笔笔记录即可,"实际组合"曲线自然会从基准日开始往后画。<br>
+  19. "实际杠杆率""累计收益对比"这两个panel只用你实际记录的持仓/卖出算,180日超额收益那个panel则始终是"假设从未熔断"的参考信号(专门用来判断要不要熔断,不代表实际账户表现)——两者故意分开,别混着看。"实际杠杆率"的分母现在是从基准结转出来的净值(基准现金 + 每笔成交的现金流 − 计提的融资利息,再加上当日股票市值),不再是拿"今天的净值"去反推整段历史。<b>但曲线的起点跟基准无关</b>——它从你<b>最早那笔记录</b>算起(代码里就是取所有 buyDate 的最小值),基准日只决定"股数和现金从哪天开始往后滚",不决定曲线画到哪。所以重设基准不会砍掉历史曲线。唯一的例外是"双边当日了结"那类<b>同日来回</b>的记录:它们没有独立股数,是按"当前净值的10%"折算的,所以净资产变了这几笔的贡献会跟着变。只有这类记录才会让曲线平移;实测一份只有跨日仓位的记录,重设基准前后 40 个点逐点分文不差。持仓表格、卖出记录表格里的"编辑"按钮可以直接改历史记录(比如实际成交价跟建议价不同时用来订正),改完立刻重新计算所有曲线,请自行核对改得对不对。<br>
+  20. <b>基准是"某一天的快照",不是"现在的值"</b>——填基准日那天券商里的股数和净资产,之后就别再手动改它了:每笔成交勾进清单后,股数和现金会自己往后结转,你手改基准等于把已经算过的成交再算一遍。也不需要跟同花顺之类其他软件里的历史记录对齐——这套0.9底仓+10%杠杆分笔的打法是从你开始用这个工具那天起才生效的新策略,不建议把之前用别的方式做的历史交易硬套进来;基准日就填今天、股数和净资产抄今天的,持仓和卖出记录留空,后面跟着"今日操作清单"一笔笔记录即可,"实际组合"曲线会从<b>第一笔记录</b>开始往后画(不是从基准日)。<br>
   21. 云同步用的 Gist 是"secret"不是真正私有——GitHub 不会公开列出它,但知道链接/ID的人不需要你的Token也能直接看到内容,请只用来存这类交易记录,不要存更敏感的信息。同步逻辑很简单:两个"推送/拉取"按钮都是全量覆盖(整份记录互相覆盖,不是逐条合并),没有做多设备同时改动的冲突合并;"自动推送"只会在你这台设备修改后自动把本机覆盖到云端,不会自动拉取覆盖本机,换新设备时需要手动点一次"从云端拉取"。Token 和 Gist ID 只存在浏览器本地,清缓存/换浏览器会丢,建议记在别处备份一份。<br>
   <br>
   <b>关于"熔断后撞上下跌"这件事的完整调研结论(2026-08,做了一轮独立审计):</b><br>
@@ -316,6 +477,9 @@
   32. <b>软顶为什么是1.5:数据自己指出这里是拐点。</b>提高0.1软顶能多赚多少、要多担多少超额回吐的风险:1.4→1.5 是"+36.1pp收益 / +8.3pp风险"(性价比4.34,很划算);1.5→1.6 是"+29.1pp收益 / +31.7pp风险"(性价比0.92,基本1:1,不划算)。另外软顶1.6还有个隐性代价:杠杆越高越容易跑赢基准、越容易撞上20%停摆线,熔断次数从3次翻到6次、停摆时间占比从13%涨到21%,其中2025-11到2026-06被冻结整整7个月。<b>还有个反直觉的点:降软顶不能改善最大回撤</b>(1.4的回撤-50.8%比1.5的-45.2%更差),因为软顶越低越接近单纯满仓持有(满仓本身回撤-53%),做T利润的缓冲垫更薄。<br>
   29. <b>所有回测数字都是单一路径、单一标的、只算固定手续费不算滑点</b>,而且walk-forward模型的训练数据窗口一变(比如从2024年起 vs 从2019年起),熔断解除的具体日期能漂移2个多月——请把"解除发生在哪一天"当作基本随机的,不要依赖它的精确时点。
 </div>
+  </div>
+</div>
+
 
 <script>
 const HEADERS_NOTE = "";
@@ -890,12 +1054,91 @@ function applyAdvUIFromState() {
 
 function toggleAdvancedCards() {
   const on = document.getElementById("advancedModeToggle").checked;
-  document.getElementById("accountInputsBlock").style.display = on ? "block" : "none";
+  // accountInputsBlock now lives inside a sheet, so it is always displayed WITHIN that sheet; what the
+  // toggle controls is whether the account section and its sheet triggers exist at all.
+  document.getElementById("acctSection").style.display = on ? "block" : "none";
   ["breakerStatusCard","dashboardCard","sellLogCard","exportCard"].forEach(id => {
     document.getElementById(id).style.display = on ? "block" : "none";
   });
   const dateEl = document.getElementById("newTrancheDate");
   if (on && !dateEl.value) dateEl.value = todayDateStr();
+  const sdEl = document.getElementById("newSellDate");
+  if (on && sdEl && !sdEl.value) sdEl.value = todayDateStr();
+  if (on && typeof renderAcctTiles === "function") renderAcctTiles();
+}
+
+// ---------------- sheets ----------------
+// Low-frequency forms open on demand instead of occupying the page. Deliberately plain: no animation
+// library, no focus-trap framework -- one backdrop, one open sheet at a time, Esc and backdrop close.
+let openSheetId = null;
+function openSheet(id) {
+  closeSheet();
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.add("open");
+  document.getElementById("sheetBack").classList.add("open");
+  document.body.style.overflow = "hidden";
+  openSheetId = id;
+  // Sheets host live tables that other code only refreshes on data change, so a sheet opened later
+  // could show a stale table. Re-render whatever this one contains.
+  const R = {
+    sheetBasis: ["renderAccountInputs","renderBalanceSheet","renderBaselineWeight","renderLevEcho"],
+    sheetPositions: ["renderTranchesTable","renderSellLogTable"],
+    sheetAdjust: ["renderAdjTable"],
+    sheetRecon: ["renderReconcile"],
+    sheetData: ["renderSyncUI","renderExportView"],
+  }[id] || [];
+  R.forEach(f => { if (typeof window[f] === "function") window[f](); });
+  const first = el.querySelector("input:not([type=hidden]), button.sheet-x");
+  if (first) first.focus({ preventScroll: true });
+}
+function closeSheet() {
+  if (openSheetId) {
+    const el = document.getElementById(openSheetId);
+    if (el) el.classList.remove("open");
+  }
+  document.getElementById("sheetBack")?.classList.remove("open");
+  document.body.style.overflow = "";
+  openSheetId = null;
+}
+
+// ---------------- 账户一览:五格 ----------------
+// Read-only, straight off the ledger. It exists so the morning question ("how levered am I, is there
+// room to buy") is answerable without opening a single form.
+function renderAcctTiles() {
+  const box = document.getElementById("acctTiles");
+  if (!box) return;
+  const L = LEDGER();
+  const y = v => Math.round(v).toLocaleString("zh-CN");
+  const tile = (k, v, x, cls, sheet) =>
+    `<div class="tile ${cls || ""} ${sheet ? "clickable" : ""}" ${sheet ? `data-sheet="${sheet}"` : ""}>
+       <div class="t-k">${k}</div><div class="t-v">${v}</div>${x ? `<div class="t-x">${x}</div>` : ""}</div>`;
+
+  if (!L.ok) {
+    const why = L.err[0] || "还没有设基准";
+    box.innerHTML = tile("账本状态", "待设置", why, "warn", "sheetBasis");
+    return;
+  }
+  const cap = SP("lev_cap", 1.5), base = SP("base_frac", 0.9), band = SP("rebalance_band", 0.03);
+  const levCls = L.lev == null ? "bad" : (L.lev >= cap ? "bad" : (L.lev > cap - 0.05 ? "warn" : ""));
+  const room = L.lev != null && L.lev < cap ? (cap * L.equity - L.stockVal) : 0;
+  const bv = baseValNow(), w = bv / L.equity;
+  const wCls = Math.abs(w - base) <= band ? "" : "warn";
+  const trShares = (advState.tranches || []).reduce((a, t) => a + (+t.shares || 0), 0);
+
+  box.innerHTML = [
+    tile("净资产", y(L.equity), `股票 ${y(L.stockVal)} ${L.cash < 0 ? "− 欠款 " + y(L.debt) : "+ 现金 " + y(L.cash)}`, "", "sheetBasis"),
+    tile("杠杆", L.lev == null ? "算不出" : L.lev.toFixed(3) + " 倍",
+         L.lev == null ? "净资产 ≤0" : (room > 0 ? `距 ${cap} 软顶还有 ${y(room)} 元` : `已到 ${cap} 软顶`), levCls, "sheetBasis"),
+    tile("持仓", y(L.shares) + " 股", `@${L.price.toFixed(2)} · 加仓表 ${y(trShares)} 股`, "", "sheetPositions"),
+    tile("底仓占比", (w * 100).toFixed(1) + "%", `目标 ${(base*100).toFixed(0)}% ±${(band*100).toFixed(0)}%`, wCls, "sheetBasis"),
+    tile("已计提利息", y(L.interest), `${SP("fin_rate",0.05)*100}% 年化 · 结转 ${L.flows.length} 天`, "", "sheetAdjust"),
+  ].join("");
+
+  const bad = L.err.length + L.warn.length;
+  document.querySelectorAll('#acctToolbar [data-sheet="sheetRecon"]').forEach(b => {
+    b.innerHTML = "跟券商核对" + (bad ? '<span class="dot"></span>' : "");
+  });
 }
 
 function renderExportView() {
@@ -905,6 +1148,7 @@ function renderExportView() {
   if (typeof renderBalanceSheet === "function") renderBalanceSheet();
   // baseline is now derived from the tranche table, so adding/removing a lot changes it too
   if (typeof renderBaselineWeight === "function") renderBaselineWeight();
+  if (typeof renderAcctTiles === "function") renderAcctTiles();
   const el = document.getElementById("exportView");
   if (!el) return;
   const lines = [];
@@ -3001,7 +3245,7 @@ function renderReconcile() {
       <button class="add-btn" id="reconAsAdjBtn" style="padding:5px 11px; font-size:12px">说不清 → 记成一笔"对账差额"</button>
       <button class="add-btn" id="reconResetBtn" style="padding:5px 11px; font-size:12px">以券商为准 → 把基准重设到今天</button></div>
       <div class="todo-sub" style="margin-top:7px">"记成对账差额"保留全部历史,只补一行让账本对上;
-      "重设基准"会丢掉基准日之前的结转依据,收益曲线的起点也跟着挪到今天,所以只在差额实在查不出来时用。</div>`;
+      "重设基准"只是把股数和现金的起算点挪到今天,基准日之前的结转依据就不再用了;<b>加仓表、卖出记录、已实现盈亏和收益曲线全都不受影响</b>(曲线从最早那笔记录算起,跟基准日无关)。但它也会把没查明的差额一次性吞掉、不留痕迹,所以优先用左边那个。</div>`;
   }
   box.innerHTML = `<div style="background:#10141a; border:1px solid var(--border); border-radius:8px; padding:11px 13px; font-size:13px; line-height:1.9">
     ${rows.join("<br>")}<br>${verdict}${actions}</div>`;
@@ -3025,11 +3269,28 @@ function renderReconcile() {
   });
   const b2 = document.getElementById("reconResetBtn");
   if (b2) b2.addEventListener("click", () => {
-    if (!isFinite(bs)) { alert("重设基准需要券商的股数"); return; }
     const px = L.price;
-    const eq = isFinite(be) ? be : (bs * px + L.cash);
+    // 净资产 IS REQUIRED HERE, and this used to fall back to bs*px + L.cash. That fallback was wrong in the
+    // exact situation the button exists for: if the ledger's share count is off, its CASH is off by the
+    // same trade, so grafting a corrected share count onto the stale cash double-counts that trade. A
+    // real case: ledger 43,200 shares / cash +11,190 (containing a 5,000-share sale's proceeds), broker
+    // 48,200 shares -> the fallback produced 1,128,948 instead of ~1,012,678, inflating equity by the
+    // full market value of the disputed shares and understating leverage by the same amount.
+    if (!isFinite(bs) || !isFinite(be)) {
+      const guess = isFinite(bs) ? bs * px + L.cash : null;
+      alert("重设基准要同时填券商的股数和净资产。\n\n"
+        + "只填股数的话,现金只能沿用账本里那个 —— 而账本正是对不上的那一方,"
+        + "它的现金里可能含着一笔有争议的成交款。把它和修正后的股数拼在一起,"
+        + "同一笔资产会被算两遍。\n\n"
+        + (guess != null
+            ? `这次就会算成 ${Math.round(guess).toLocaleString("zh-CN")},而不是券商上那个数。`
+            : "")
+        + "\n净资产在券商 App 里就有,抄一下就行。");
+      return;
+    }
+    const eq = be;
     if (!confirm(`把基准重设为 ${todayDateStr()}:${bs} 股 / 净资产 ${Math.round(eq)} / 计价 ${px.toFixed(2)}?\n\n`
-               + `基准日之前的结转依据会失效,收益曲线起点也会挪到今天。加仓表和卖出记录都保留不动。`)) return;
+               + `股数和现金改成从今天起算,基准日之前的结转依据不再使用。加仓表、卖出记录、已实现盈亏、收益曲线都保留不动(曲线从最早那笔记录算起,跟基准日无关)。`)) return;
     advState.anchor = { date: todayDateStr(), shares: bs, equity: eq, price: px, migratedFrom: "reconcile" };
     saveAdvState(advState);
     renderAccountInputs();
@@ -3136,6 +3397,33 @@ document.getElementById("baselineValueInput").addEventListener("input", (e) => {
   renderExportView();
   renderOpenPriceDecision();
 });
+// Manual sell entry. The 卖出记录 table has always had 编辑/删除 but no way to ADD -- so a fill that
+// happened while the page was closed, or a history being rebuilt by hand, could not be entered at all.
+// That was survivable when sellLog only fed the P&L display; now it moves the share count, so a missing
+// sell is a wrong balance sheet.
+document.getElementById("addSellBtn").addEventListener("click", () => {
+  const g = id => document.getElementById(id);
+  const shares = parseFloat(g("newSellShares").value);
+  const buyPrice = parseFloat(g("newSellBuyPrice").value);
+  const sellPrice = parseFloat(g("newSellPrice").value);
+  const date = g("newSellDate").value.trim() || todayDateStr();
+  const buyDate = g("newSellBuyDate").value.trim() || date;
+  const bad = [];
+  if (!shares || shares <= 0) bad.push("newSellShares");
+  if (!buyPrice || buyPrice <= 0) bad.push("newSellBuyPrice");   // required: without it the ledger drops the whole row
+  if (!sellPrice || sellPrice <= 0) bad.push("newSellPrice");
+  if (buyDate > date) bad.push("newSellBuyDate");                 // a buy after its own sell is not a trade
+  if (bad.length) {
+    bad.forEach(id => { const e = g(id); e.style.borderColor = "var(--red)";
+                        setTimeout(() => { e.style.borderColor = ""; }, 1800); });
+    return;
+  }
+  advState.sellLog.push({ date, tag: "手工补录", shares, buyPrice, sellPrice, buyDate });
+  saveAdvState(advState);
+  ["newSellShares","newSellBuyPrice","newSellPrice","newSellBuyDate"].forEach(id => g(id).value = "");
+  renderSellLogTable(); renderAdjTable(); renderBalanceSheet(); renderBaselineWeight();
+  renderLevEcho(); renderExportView(); renderReconcile(); renderDashboard(); renderOpenPriceDecision();
+});
 document.getElementById("addTrancheBtn").addEventListener("click", () => {
   const dateEl = document.getElementById("newTrancheDate");
   const sharesEl = document.getElementById("newTrancheShares");
@@ -3202,6 +3490,16 @@ document.getElementById("dashboardCustomStart").addEventListener("change", (e) =
   dashboardCustomStart = e.target.value;
   renderDashboard();
 });
+
+// One delegated listener for every [data-sheet] trigger, so tiles rendered later (they are rebuilt on
+// every ledger change) do not need their own wiring.
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-sheet]");
+  if (t) { openSheet(t.dataset.sheet); return; }
+  if (e.target.closest("[data-close-sheet]")) { closeSheet(); return; }
+  if (e.target.id === "sheetBack") closeSheet();
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && openSheetId) closeSheet(); });
 
 document.getElementById("syncTokenInput").addEventListener("input", (e) => {
   syncConfig.token = e.target.value.trim() || null;
