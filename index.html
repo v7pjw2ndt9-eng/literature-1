@@ -2738,7 +2738,7 @@ function renderBalanceSheet() {
   const priceNote = currentStockLast ? `现价 ${currentStockLast.toFixed(2)}`
                   : (currentStockOpen ? `今开 ${currentStockOpen.toFixed(2)}`
                   : `昨收 ${currentStockPrevClose.toFixed(2)}`);
-  const A = L.anchor;
+  const A = L.anchor, A0 = advState.anchor;
   const trs = advState.tranches || [];
   const bv = baseValNow(), bsh = baseSharesNow() ?? 0;
   const baseTypedRaw = document.getElementById("baseSharesInput")?.value;
@@ -2775,6 +2775,29 @@ function renderBalanceSheet() {
         style="margin-top:8px; padding:5px 11px; font-size:12px">已按这个数调仓了 → 记一笔(${lots > 0 ? "买入" : "卖出"} ${y(Math.abs(lots))} 股 @${px.toFixed(2)})</button>`;
   }
 
+  // A MIGRATED ANCHOR IS A GUESS AND MUST BE CONFIRMED ONCE.
+  // The old form asked for 总股数 as "现在的值", so the number is a snapshot with an UNKNOWN as-of date --
+  // the user updated it whenever they happened to. The migration has to date the anchor somehow, and it
+  // picks the day it ran; if the user last typed the number before a fill that then landed on that same
+  // day, the fill falls exactly on the boundary and vanishes. Nothing in the stored data can distinguish
+  // "typed after that fill" from "typed before it", so this is not solvable by a better rule -- it needs
+  // one confirmation from the only party who knows. Until then the banner stays up.
+  const needsConfirm = A0 && A0.migratedFrom === "typed" && !A0.confirmedAt;
+  const confirmBox = needsConfirm ? `
+    <div style="background:#1a1410; border:1px solid var(--amber); border-radius:8px; padding:11px 13px; margin-top:12px; font-size:13px; line-height:1.85">
+      <b style="color:var(--amber)">这个基准是从你以前手填的数字自动迁移来的,请核对一次</b><br>
+      以前那格写的是"现在的股数",但没记是<b>哪天</b>填的。我把基准日定成了迁移那天(${A.date}),
+      如果你最后一次改那个数字是在更早的某天、而之后又有成交,那笔成交会正好卡在边界上被漏算。<br>
+      所以只要确认一次:<b>现在券商里显示你持有多少股?</b>
+      <div class="inline-fields" style="grid-template-columns:1fr 1fr auto; margin-top:9px">
+        <div class="field"><label>现在的总股数</label><input type="number" step="100" id="confShares" value="${y(L.shares)}"></div>
+        <div class="field"><label>现在的净资产</label><input type="number" id="confEquity" value="${Math.round(L.equity)}"></div>
+        <div class="field" style="display:flex; align-items:flex-end"><button class="add-btn" id="confirmAnchorBtn" style="margin-top:0; width:100%">就是这样,把基准锁到今天</button></div>
+      </div>
+      <div style="color:var(--muted); margin-top:6px">锁到今天之后,已有的成交记录只用来算已实现盈亏和曲线,不再影响股数和现金,
+      所以不会再重复扣。之后新记的成交才继续往后结转。</div>
+    </div>` : "";
+
   const rolled = L.flows.length;
   const anchorLine = `基准 ${A.date}:${y(A.shares)} 股 / 净资产 ${y(A.equity)} / 计价 ${A.price.toFixed(2)}`
     + `  →  倒推现金 ${sign(A.cash)}`;
@@ -2785,9 +2808,20 @@ function renderBalanceSheet() {
   // WRONG for one that happens afterwards on the same day. Nothing in the data can distinguish the two:
   // fills carry a date, not a time. So when the collision actually exists, it is put to the user as a
   // one-click choice. Guessing either way here would silently drop or double-count a whole trade.
+  // WIDENED after it missed a live case. It originally scanned only the DATE field of each record, so it
+  // caught a still-open lot dated on the anchor day -- but not a lot that had already been SOLD. A closed
+  // round trip lives in sellLog with buyDate on the anchor day and date after it, and the tranche is gone,
+  // so the buy leg gets swallowed as "already inside the snapshot" while the sell leg is applied on top.
+  // That silently removes shares that were never added: a real account went from 48,200 to 43,200 with no
+  // warning anywhere. buyDate has to be checked too.
   const sameDayFills = []
-    .concat((advState.tranches || []).filter(t => t.date === A.date).map(t => `买入 ${t.shares} 股 @${(+t.cost).toFixed(2)}`))
-    .concat((advState.sellLog || []).filter(e => e.date === A.date).map(e => `卖出 ${e.shares} 股 @${(+e.sellPrice).toFixed(2)}`));
+    .concat((advState.tranches || []).filter(t => t.date === A.date)
+            .map(t => `买入 ${t.shares} 股 @${(+t.cost).toFixed(2)}`))
+    .concat((advState.sellLog || []).filter(e => e.date === A.date)
+            .map(e => `卖出 ${e.shares} 股 @${(+e.sellPrice).toFixed(2)}`))
+    .concat((advState.sellLog || []).filter(e => e.buyDate === A.date && e.date !== A.date)
+            .map(e => `买入 ${e.shares} 股 @${(+e.buyPrice).toFixed(2)}(已于 ${e.date} 卖出,所以买入那腿现在被当成已含在基准里,`
+                    + `而卖出那腿会照扣 —— 如果基准的股数其实是买入之前的数,这 ${e.shares} 股就白扣了)`));
   const sameDayBox = sameDayFills.length ? `
     <div style="background:#1a1410; border:1px solid var(--amber); border-radius:8px; padding:10px 13px; margin-top:12px; font-size:13px; line-height:1.8">
       <b style="color:var(--amber)">基准日 ${A.date} 当天还有 ${sameDayFills.length} 笔成交记录</b>
@@ -2862,7 +2896,22 @@ function renderBalanceSheet() {
     })()}
   </div>`;
 
-  box.insertAdjacentHTML("beforeend", sameDayBox);
+  box.insertAdjacentHTML("beforeend", confirmBox + sameDayBox);
+
+  const cab = document.getElementById("confirmAnchorBtn");
+  if (cab) cab.addEventListener("click", () => {
+    const sh = parseFloat(document.getElementById("confShares").value);
+    const eq = parseFloat(document.getElementById("confEquity").value);
+    if (!isFinite(sh) || !isFinite(eq)) { alert("股数和净资产都要填"); return; }
+    // Dated TODAY, so every existing record sits on or before it and none is replayed. That is the whole
+    // point: the confirmed number already contains all of them.
+    advState.anchor = { date: todayDateStr(), shares: sh, equity: eq, price: L.price,
+                        migratedFrom: "typed", confirmedAt: todayDateStr() };
+    saveAdvState(advState);
+    renderAccountInputs();
+    renderAdjTable(); renderBalanceSheet(); renderBaselineWeight(); renderLevEcho();
+    renderExportView(); renderReconcile(); renderOpenPriceDecision();
+  });
 
   const bdb = document.getElementById("anchorBackDateBtn");
   if (bdb) bdb.addEventListener("click", () => {
@@ -3036,7 +3085,10 @@ function readAnchorFromInputs() {
   const px = isFinite(pxTyped) && pxTyped > 0 ? pxTyped : priceOnDate(d);
   advState.anchor = { date: d, shares: sh, equity: eq,
                       price: isFinite(px) && px > 0 ? px : null,
-                      migratedFrom: advState.anchor?.migratedFrom ?? "typed" };
+                      migratedFrom: advState.anchor?.migratedFrom ?? "typed",
+                      // Typing the anchor by hand IS the confirmation -- the date came from the user, so
+                      // its as-of moment is no longer a guess.
+                      confirmedAt: todayDateStr() };
 }
 function onAnchorEdited() {
   readAnchorFromInputs();
